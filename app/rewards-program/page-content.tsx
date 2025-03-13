@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePersonalize } from '@/components/context/PersonalizeContext';
+import { syncMembershipStatus } from '@/helpers/localStorage-sync';
 
 export const PageContent = () => {
   // Initialize with a default value
@@ -12,16 +13,44 @@ export const PageContent = () => {
   // Use useEffect to detect client-side rendering and access localStorage
   useEffect(() => {
     setIsClient(true);
-    const value = window.localStorage.getItem('isSubscribed');
-    setIsSubscribed(value === 'true');
+    try {
+      const value = window.localStorage.getItem('isSubscribed');
+      setIsSubscribed(value === 'true');
+    } catch (e) {
+      console.error('Failed to access localStorage:', e);
+    }
   }, []);
 
   const subscribe = async (shouldSubscribe: boolean) => {
     setIsSubscribed(shouldSubscribe);
-    window.localStorage.setItem('isSubscribed', `${shouldSubscribe}`);
-    await personalizeSdk?.set({
-      isRewardMember: shouldSubscribe,
-    });
+
+    try {
+      // Update localStorage
+      window.localStorage.setItem('isSubscribed', `${shouldSubscribe}`);
+      console.log(`[RewardsProgram] Updated isSubscribed in localStorage: ${shouldSubscribe}`);
+
+      // Sync membership status with other components
+      syncMembershipStatus(shouldSubscribe);
+
+      // Update personalization SDK attributes
+      if (personalizeSdk) {
+        await personalizeSdk.set({
+          isRewardMember: shouldSubscribe,
+          memberSince: shouldSubscribe ? new Date().toISOString() : null,
+        });
+        console.log(`[RewardsProgram] Updated personalization attributes: isRewardMember=${shouldSubscribe}`);
+
+        // Trigger relevant event
+        await personalizeSdk.triggerEvent(shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave');
+        console.log(`[RewardsProgram] Triggered event: ${shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave'}`);
+      }
+
+      // Force a refresh event
+      const event = new Event('personalize-update');
+      window.dispatchEvent(event);
+    } catch (e) {
+      console.error('[RewardsProgram] Error updating membership status:', e);
+    }
   };
 
   // If not on client yet, return a loading state or minimal UI
@@ -82,15 +111,15 @@ export const PageContent = () => {
                   shopping experience while enjoying additional benefits from their favorite brands.
                 </p>
               </div>
-              <div className="mt-8 flex items-center justify-end">
-                <button
-                    id="subscribe"
-                    className="px-4 py-2 bg-blue-600 rounded-lg text-blue-50 text-sm font-semibold"
-                    onClick={() => subscribe(true)}
-                >
-                  Join Now
-                </button>
-              </div>
+              {/*<div className="mt-8 flex items-center justify-end">*/}
+              {/*  <button*/}
+              {/*      id="subscribe"*/}
+              {/*      className="px-4 py-2 bg-blue-600 rounded-lg text-blue-50 text-sm font-semibold"*/}
+              {/*      onClick={() => subscribe(true)}*/}
+              {/*  >*/}
+              {/*    Join Now*/}
+              {/*  </button>*/}
+              {/*</div>*/}
             </>
         )}
       </div>
