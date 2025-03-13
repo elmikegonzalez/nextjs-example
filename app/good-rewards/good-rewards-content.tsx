@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePersonalize } from '@/components/context/PersonalizeContext';
+import { syncMembershipStatus } from '@/helpers/localStorage-sync';
 
 // Types for our rewards program content
 interface RewardsProgramContent {
@@ -277,6 +278,9 @@ const GoodRewardsContent = () => {
         try {
             window.localStorage.setItem('isSubscribed', `${shouldSubscribe}`);
             console.log('[GoodRewardsContent] Updated localStorage with subscription status');
+
+            // Call the sync function to notify other components
+            syncMembershipStatus(shouldSubscribe);
         } catch (error) {
             console.error('[GoodRewardsContent] Error updating localStorage:', error);
         }
@@ -322,6 +326,10 @@ const GoodRewardsContent = () => {
                 console.log('[GoodRewardsContent] Updating to non-member content');
                 setContent(contentVariants.default);
             }
+
+            // Force a personalize update event to refresh other components
+            const event = new Event('personalize-update');
+            window.dispatchEvent(event);
         } catch (error) {
             console.error('[GoodRewardsContent] Error updating personalization:', error);
             console.error('[GoodRewardsContent] Error stack:', error.stack);

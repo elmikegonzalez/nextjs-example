@@ -101,15 +101,26 @@ const PersonalizedRewardsLink = () => {
             console.log('[PersonalizedRewardsLink] SDK available, getting user attributes');
 
             try {
+                // Check localStorage first for subscription status as a backup
+                let isSubscribedFromStorage = false;
+                try {
+                    const value = window.localStorage.getItem('isSubscribed');
+                    console.log('[PersonalizedRewardsLink] Retrieved subscription status from localStorage:', value);
+                    isSubscribedFromStorage = value === 'true';
+                } catch (error) {
+                    console.error('[PersonalizedRewardsLink] Error accessing localStorage:', error);
+                }
+
                 // Get individual attributes using our helper function
                 console.log('[PersonalizedRewardsLink] Getting isRewardMember attribute');
-                const isRewardMember = getPersonalizeAttribute(personalizeSdk, 'isRewardMember', false);
+                const isRewardMember = getPersonalizeAttribute(personalizeSdk, 'isRewardMember', isSubscribedFromStorage);
 
                 console.log('[PersonalizedRewardsLink] Getting isPremiumMember attribute');
                 const isPremiumMember = getPersonalizeAttribute(personalizeSdk, 'isPremiumMember', false);
 
                 console.log('[PersonalizedRewardsLink] User attributes retrieved:', {
                     isRewardMember,
+                    isSubscribedFromStorage,
                     isPremiumMember,
                     isAuthenticated
                 });
@@ -118,7 +129,10 @@ const PersonalizedRewardsLink = () => {
                 let newLinkText: string;
                 let newLinkPath: string = "/good-rewards";
 
-                if (isRewardMember) {
+                // Use either SDK's isRewardMember OR localStorage's isSubscribed
+                const isMember = isRewardMember || isSubscribedFromStorage;
+
+                if (isMember) {
                     if (isPremiumMember) {
                         newLinkText = "Premium Rewards";
                     } else {
@@ -163,6 +177,22 @@ const PersonalizedRewardsLink = () => {
         // Call the function when SDK is available
         getPersonalizedLink();
 
+        // Add a localStorage event listener to catch subscription changes
+        const storageHandler = (e: StorageEvent) => {
+            if (e.key === 'isSubscribed') {
+                console.log('[PersonalizedRewardsLink] Detected localStorage change for isSubscribed:', e.newValue);
+                getPersonalizedLink();
+            }
+        };
+        window.addEventListener('storage', storageHandler);
+
+        // Listen for our custom event too
+        const storageUpdateHandler = () => {
+            console.log('[PersonalizedRewardsLink] Detected storage-updated event');
+            getPersonalizedLink();
+        };
+        window.addEventListener('storage-updated', storageUpdateHandler);
+
         // Set up event listener for personalization changes
         const handlePersonalizeUpdate = () => {
             console.log('[PersonalizedRewardsLink] Personalization update event received, refreshing link');
@@ -170,12 +200,20 @@ const PersonalizedRewardsLink = () => {
         };
 
         window.addEventListener('personalize-update', handlePersonalizeUpdate);
-        console.log('[PersonalizedRewardsLink] Added event listener for personalize-update');
+        console.log('[PersonalizedRewardsLink] Added event listeners');
 
-        // Clean up event listener
+        // Also poll for changes every few seconds (as a fallback)
+        const intervalId = setInterval(() => {
+            getPersonalizedLink();
+        }, 5000);
+
+        // Clean up event listeners and interval
         return () => {
-            console.log('[PersonalizedRewardsLink] Component unmounting, removing event listener');
+            console.log('[PersonalizedRewardsLink] Component unmounting, removing event listeners');
             window.removeEventListener('personalize-update', handlePersonalizeUpdate);
+            window.removeEventListener('storage', storageHandler);
+            window.removeEventListener('storage-updated', storageUpdateHandler);
+            clearInterval(intervalId);
         };
     }, [personalizeSdk, status, isAuthenticated]);
 

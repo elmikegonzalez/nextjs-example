@@ -19,9 +19,9 @@ function Navbar({ navLinks }: NavbarProps) {
           <nav className='flex items-center'>
             <p className='font-bold mr-6'>Personalize Demo</p>
             <ul className='flex space-x-6 text-sm font-medium text-muted-foreground'>
-              {/*{navLinks.map(({ title, href }) => (*/}
-              {/*    <a className='hover:text-foreground transition-all' key={title} href={href}>{title}</a>*/}
-              {/*))}*/}
+              {navLinks.map(({ title, href }) => (
+                  <a className='hover:text-foreground transition-all' key={title} href={href}>{title}</a>
+              ))}
               {/* Add the personalized rewards link */}
               <PersonalizedRewardsLink />
             </ul>
