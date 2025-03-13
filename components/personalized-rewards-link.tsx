@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import { usePersonalize } from '@/components/context/PersonalizeContext';
 
 // Helper function to safely get attributes from the SDK
@@ -74,15 +75,21 @@ function getPersonalizeAttribute(sdk: any, attributeName: string, defaultValue: 
 
 const PersonalizedRewardsLink = () => {
     // State to store the personalized link text
-    const [linkText, setLinkText] = useState("Join Rewards");
+    const [linkText, setLinkText] = useState("Rewards");
+    const [linkPath, setLinkPath] = useState("/good-rewards");
 
     // Get the Personalize SDK from context
     const personalizeSdk = usePersonalize();
+
+    // Get the authentication session
+    const { data: session, status } = useSession();
+    const isAuthenticated = status === 'authenticated';
 
     // Effect to update link text based on user attributes
     useEffect(() => {
         console.log('[PersonalizedRewardsLink] Component mounted');
         console.log('[PersonalizedRewardsLink] Personalize SDK object:', personalizeSdk);
+        console.log('[PersonalizedRewardsLink] Session status:', status);
 
         const getPersonalizedLink = async () => {
             // Skip if SDK isn't available yet
@@ -103,27 +110,34 @@ const PersonalizedRewardsLink = () => {
 
                 console.log('[PersonalizedRewardsLink] User attributes retrieved:', {
                     isRewardMember,
-                    isPremiumMember
+                    isPremiumMember,
+                    isAuthenticated
                 });
 
-                // Determine link text based on membership status
-                let newLinkText: string; // Default value
+                // Determine link text based on membership status and authentication
+                let newLinkText: string;
+                let newLinkPath: string = "/good-rewards";
 
                 if (isRewardMember) {
                     if (isPremiumMember) {
                         newLinkText = "Premium Rewards";
-                        console.log('[PersonalizedRewardsLink] User is a premium member');
                     } else {
                         newLinkText = "Your Rewards";
-                        console.log('[PersonalizedRewardsLink] User is a basic member');
                     }
                 } else {
-                    newLinkText = "Join Rewards";
-                    console.log('[PersonalizedRewardsLink] User is not a member');
+                    // Not a member
+                    if (isAuthenticated) {
+                        newLinkText = "Join Rewards";
+                    } else {
+                        newLinkText = "Rewards";
+                        // If not authenticated, clicking should prompt to login first
+                        newLinkPath = "/api/auth/signin"; // NextAuth signin route
+                    }
                 }
 
                 console.log(`[PersonalizedRewardsLink] Setting link text to: "${newLinkText}"`);
                 setLinkText(newLinkText);
+                setLinkPath(newLinkPath);
 
                 // Optional: Track navigation impression
                 console.log('[PersonalizedRewardsLink] Triggering impression for rewards-nav-link');
@@ -141,8 +155,8 @@ const PersonalizedRewardsLink = () => {
             } catch (error) {
                 console.error('[PersonalizedRewardsLink] Error personalizing rewards link:', error);
                 // Fallback to default text
-                console.log('[PersonalizedRewardsLink] Using fallback link text "Good Rewards"');
-                setLinkText("Good Rewards");
+                console.log('[PersonalizedRewardsLink] Using fallback link text "Rewards"');
+                setLinkText("Rewards");
             }
         };
 
@@ -163,7 +177,7 @@ const PersonalizedRewardsLink = () => {
             console.log('[PersonalizedRewardsLink] Component unmounting, removing event listener');
             window.removeEventListener('personalize-update', handlePersonalizeUpdate);
         };
-    }, [personalizeSdk]);
+    }, [personalizeSdk, status, isAuthenticated]);
 
     const handleLinkClick = async () => {
         console.log('[PersonalizedRewardsLink] Link clicked');
@@ -185,11 +199,11 @@ const PersonalizedRewardsLink = () => {
         }
     };
 
-    console.log(`[PersonalizedRewardsLink] Rendering with link text: "${linkText}"`);
+    console.log(`[PersonalizedRewardsLink] Rendering with link text: "${linkText}" and path: "${linkPath}"`);
 
     return (
         <Link
-            href="/good-rewards"
+            href={linkPath}
             className="hover:text-foreground transition-all"
             onClick={handleLinkClick}
         >
