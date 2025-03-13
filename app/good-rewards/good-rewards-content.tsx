@@ -114,7 +114,7 @@ function getPersonalizeAttribute(sdk: any, attributeName: string, defaultValue: 
                     console.log(`[getPersonalizeAttribute] Found attribute using getUserAttributes: ${attributeName}=${attrs[attributeName]}`);
                     return attrs[attributeName];
                 }
-            } catch (e) {
+            } catch (e: any) {
                 console.log(`[getPersonalizeAttribute] getUserAttributes failed: ${e.message}`);
             }
         }
@@ -141,7 +141,7 @@ function getPersonalizeAttribute(sdk: any, attributeName: string, defaultValue: 
                         return state.user.attributes[attributeName];
                     }
                 }
-            } catch (e) {
+            } catch (e:any) {
                 console.log(`[getPersonalizeAttribute] getState failed: ${e.message}`);
             }
         }
@@ -192,11 +192,11 @@ const GoodRewardsContent = () => {
                 console.log('[GoodRewardsContent] SDK available, fetching personalization attributes');
 
                 // Log the SDK object to see what's available
-                console.log('[GoodRewardsContent] Personalize SDK methods:',
-                    Object.keys(personalizeSdk)
-                        .filter(key => typeof personalizeSdk[key] === 'function')
-                        .join(', ')
-                );
+                // console.log('[GoodRewardsContent] Personalize SDK methods:',
+                //     Object.keys(personalizeSdk)
+                //         .filter(key => typeof personalizeSdk[key] === 'function')
+                //         .join(', ')
+                // );
 
                 // Get individual attributes using our helper function
                 console.log('[GoodRewardsContent] Getting isRewardMember attribute');
@@ -261,7 +261,7 @@ const GoodRewardsContent = () => {
                     console.error('[GoodRewardsContent] Error tracking impression:', error);
                 }
 
-            } catch (error) {
+            } catch (error:any) {
                 console.error('[GoodRewardsContent] Error fetching personalized content:', error);
                 console.error('[GoodRewardsContent] Error stack:', error.stack);
             }
@@ -330,7 +330,7 @@ const GoodRewardsContent = () => {
             // Force a personalize update event to refresh other components
             const event = new Event('personalize-update');
             window.dispatchEvent(event);
-        } catch (error) {
+        } catch (error:any) {
             console.error('[GoodRewardsContent] Error updating personalization:', error);
             console.error('[GoodRewardsContent] Error stack:', error.stack);
         }
@@ -398,7 +398,8 @@ const GoodRewardsContent = () => {
                                     <div
                                         className="bg-blue-600 h-2.5 rounded-full"
                                         style={{
-                                            width: `${Math.min(100, (content.tierInfo.pointsBalance / (content.tierInfo.pointsBalance + content.tierInfo.pointsToNextTier)) * 100)}%`
+                                            width: `${Math.min(100, ((content.tierInfo?.pointsBalance ?? 0) /
+                                                ((content.tierInfo?.pointsBalance ?? 0) + (content.tierInfo?.pointsToNextTier ?? 1))) * 100)}%`
                                         }}
                                     ></div>
                                 </div>

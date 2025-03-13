@@ -32,7 +32,7 @@ function getPersonalizeAttribute(sdk: any, attributeName: string, defaultValue: 
                     console.log(`[getPersonalizeAttribute] Found attribute using getUserAttributes: ${attributeName}=${attrs[attributeName]}`);
                     return attrs[attributeName];
                 }
-            } catch (e) {
+            } catch (e:any) {
                 console.log(`[getPersonalizeAttribute] getUserAttributes failed: ${e.message}`);
             }
         }
@@ -59,7 +59,7 @@ function getPersonalizeAttribute(sdk: any, attributeName: string, defaultValue: 
                         return state.user.attributes[attributeName];
                     }
                 }
-            } catch (e) {
+            } catch (e:any) {
                 console.log(`[getPersonalizeAttribute] getState failed: ${e.message}`);
             }
         }
