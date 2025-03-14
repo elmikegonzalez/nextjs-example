@@ -12,7 +12,8 @@ const Profile = () => {
     if (status === 'authenticated') {
         return (
             <div className='flex items-center gap-3'>
-                <span className='text-sm font-medium'>Hi, {data.user?.email}</span>
+                {/*<span className='text-sm font-medium'>Hi, {data.user?.email}</span>*/}
+                <span className='text-sm font-medium'>Hi, {data.user?.name}</span>
                 <button id='sign-out'
                         className='text-sm bg-slate-900 text-background font-semibold px-3 py-2 rounded-lg'
                         onClick={async () => {
