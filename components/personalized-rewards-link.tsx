@@ -75,7 +75,7 @@ function getPersonalizeAttribute(sdk: any, attributeName: string, defaultValue: 
 
 const PersonalizedRewardsLink = () => {
     // State to store the personalized link text
-    const [linkText, setLinkText] = useState("Rewards");
+    const [linkText, setLinkText] = useState("Good Rewards");
     const [linkPath, setLinkPath] = useState("/good-rewards");
 
     // Get the Personalize SDK from context
@@ -134,16 +134,16 @@ const PersonalizedRewardsLink = () => {
 
                 if (isMember) {
                     if (isPremiumMember) {
-                        newLinkText = "Premium Rewards";
+                        newLinkText = "Icon Rewards";
                     } else {
-                        newLinkText = "Your Rewards";
+                        newLinkText = "Core Rewards";
                     }
                 } else {
                     // Not a member
                     if (isAuthenticated) {
                         newLinkText = "Join Rewards";
                     } else {
-                        newLinkText = "Rewards";
+                        newLinkText = "Good Rewards";
                         // If not authenticated, clicking should prompt to login first
                         newLinkPath = "/api/auth/signin"; // NextAuth signin route
                     }
@@ -203,9 +203,9 @@ const PersonalizedRewardsLink = () => {
         console.log('[PersonalizedRewardsLink] Added event listeners');
 
         // Also poll for changes every few seconds (as a fallback)
-        const intervalId = setInterval(() => {
-            getPersonalizedLink();
-        }, 5000);
+        // const intervalId = setInterval(() => {
+        //     getPersonalizedLink();
+        // }, 5000);
 
         // Clean up event listeners and interval
         return () => {
@@ -213,7 +213,7 @@ const PersonalizedRewardsLink = () => {
             window.removeEventListener('personalize-update', handlePersonalizeUpdate);
             window.removeEventListener('storage', storageHandler);
             window.removeEventListener('storage-updated', storageUpdateHandler);
-            clearInterval(intervalId);
+            // clearInterval(intervalId);
         };
     }, [personalizeSdk, status, isAuthenticated]);
 

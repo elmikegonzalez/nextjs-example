@@ -1,167 +1,24 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { useState, useEffect } from 'react';
 import { usePersonalize } from '@/components/context/PersonalizeContext';
 import { syncMembershipStatus } from '@/helpers/localStorage-sync';
+import { RewardsProgramContent } from './good-rewards-fetcher';
 
-// Types for our rewards program content
-interface RewardsProgramContent {
-    title: string;
-    description: string;
-    benefits: string[];
-    ctaText: string;
-    tierInfo?: {
-        currentTier?: string;
-        pointsBalance?: number;
-        nextTier?: string;
-        pointsToNextTier?: number;
-    };
-    promotionalMessage?: string;
+// Define the props interface explicitly
+interface GoodRewardsContentProps {
+    initialContent: RewardsProgramContent;
 }
 
-// Different variants of content
-const contentVariants: Record<string, RewardsProgramContent> = {
-    // Non-member variant
-    default: {
-        title: "Join Good Rewards Today",
-        description: "Our members-only program gives you access to exclusive benefits, points on every purchase, and special offers.",
-        benefits: [
-            "Earn 1 point for every $1 spent",
-            "Free standard shipping on all orders",
-            "Early access to new collections",
-            "Birthday gift each year"
-        ],
-        ctaText: "Join Now"
-    },
-
-    // Basic member variant
-    member: {
-        title: "Good Rewards",
-        description: "Thanks for being a Good Rewards member! Keep shopping to earn more points and unlock premium benefits.",
-        benefits: [
-            "Earn 1 point for every $1 spent",
-            "Free standard shipping on all orders",
-            "Early access to new collections",
-            "Birthday gift each year"
-        ],
-        ctaText: "View Account",
-        tierInfo: {
-            currentTier: "Basic",
-            pointsBalance: 250,
-            nextTier: "Silver",
-            pointsToNextTier: 750
-        }
-    },
-
-    // Premium member variant
-    premium: {
-        title: "Good Rewards Premium",
-        description: "You've unlocked our premium tier! Enjoy enhanced benefits and our highest point earning rate.",
-        benefits: [
-            "Earn 1.5 points for every $1 spent",
-            "Free expedited shipping on all orders",
-            "Exclusive access to limited editions",
-            "Double points on your birthday month",
-            "Dedicated customer service line"
-        ],
-        ctaText: "View Premium Benefits",
-        tierInfo: {
-            currentTier: "Premium",
-            pointsBalance: 2450,
-            nextTier: "Diamond",
-            pointsToNextTier: 2550
-        }
-    },
-
-    // Promotional variant (can be shown to any segment during promotions)
-    promotion: {
-        title: "Double Points Weekend!",
-        description: "For this weekend only, earn DOUBLE POINTS on all purchases! The perfect time to stock up and earn rewards faster.",
-        benefits: [
-            "2X points on all purchases this weekend",
-            "Bonus 100 points when you spend $100+",
-            "All regular member benefits included"
-        ],
-        ctaText: "Shop Now",
-        promotionalMessage: "Hurry! Offer ends Sunday at midnight."
-    }
-};
-
-// Helper function to safely get attributes from the SDK
-function getPersonalizeAttribute(sdk: any, attributeName: string, defaultValue: any = null) {
-    if (!sdk) {
-        console.log(`[getPersonalizeAttribute] SDK is null or undefined, returning default: ${defaultValue}`);
-        return defaultValue;
-    }
-
-    console.log(`[getPersonalizeAttribute] Attempting to get attribute: ${attributeName}`);
-
-    try {
-        // Log available methods on the SDK to help debug
-        console.log('[getPersonalizeAttribute] Available SDK methods:',
-            Object.keys(sdk)
-                .filter(key => typeof sdk[key] === 'function')
-                .join(', ')
-        );
-
-        // Try getUserAttributes if it exists (common pattern)
-        if (typeof sdk.getUserAttributes === 'function') {
-            try {
-                console.log('[getPersonalizeAttribute] Trying sdk.getUserAttributes()');
-                const attrs = sdk.getUserAttributes();
-                console.log('[getPersonalizeAttribute] getUserAttributes result:', attrs);
-                if (attrs && attrs[attributeName] !== undefined) {
-                    console.log(`[getPersonalizeAttribute] Found attribute using getUserAttributes: ${attributeName}=${attrs[attributeName]}`);
-                    return attrs[attributeName];
-                }
-            } catch (e: any) {
-                console.log(`[getPersonalizeAttribute] getUserAttributes failed: ${e.message}`);
-            }
-        }
-
-        // Try user.attributes if it exists
-        if (sdk.user && sdk.user.attributes) {
-            console.log('[getPersonalizeAttribute] Trying sdk.user.attributes');
-            console.log('[getPersonalizeAttribute] user.attributes:', sdk.user.attributes);
-            if (sdk.user.attributes[attributeName] !== undefined) {
-                console.log(`[getPersonalizeAttribute] Found attribute in user.attributes: ${attributeName}=${sdk.user.attributes[attributeName]}`);
-                return sdk.user.attributes[attributeName];
-            }
-        }
-
-        // Try getState pattern if it exists
-        if (typeof sdk.getState === 'function') {
-            try {
-                console.log('[getPersonalizeAttribute] Trying sdk.getState()');
-                const state = sdk.getState();
-                console.log('[getPersonalizeAttribute] getState result:', state);
-                if (state && state.user && state.user.attributes) {
-                    if (state.user.attributes[attributeName] !== undefined) {
-                        console.log(`[getPersonalizeAttribute] Found attribute in state: ${attributeName}=${state.user.attributes[attributeName]}`);
-                        return state.user.attributes[attributeName];
-                    }
-                }
-            } catch (e:any) {
-                console.log(`[getPersonalizeAttribute] getState failed: ${e.message}`);
-            }
-        }
-
-        // If nothing worked, return the default
-        console.log(`[getPersonalizeAttribute] Attribute ${attributeName} not found, returning default: ${defaultValue}`);
-        return defaultValue;
-    } catch (error) {
-        console.error(`[getPersonalizeAttribute] Error getting attribute ${attributeName}:`, error);
-        return defaultValue;
-    }
-}
-
-const GoodRewardsContent = () => {
-    console.log('[GoodRewardsContent] Component rendering');
+// Use React.FC to type the component properly
+const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent }) => {
+    console.log('[GoodRewardsContent] Component rendering with initial content:', initialContent);
 
     // Local state for subscription status
     const [isSubscribed, setIsSubscribed] = useState(false);
     const [isClient, setIsClient] = useState(false);
-    const [content, setContent] = useState<RewardsProgramContent>(contentVariants.default);
+    const [content, setContent] = useState<RewardsProgramContent>(initialContent);
 
     // Get personalize SDK instance
     const personalizeSdk = usePersonalize();
@@ -169,7 +26,6 @@ const GoodRewardsContent = () => {
     // Initialize on client side
     useEffect(() => {
         console.log('[GoodRewardsContent] Component mounted');
-        console.log('[GoodRewardsContent] Personalize SDK object:', personalizeSdk);
         setIsClient(true);
 
         // Check localStorage for subscription status
@@ -181,94 +37,24 @@ const GoodRewardsContent = () => {
             console.error('[GoodRewardsContent] Error accessing localStorage:', error);
         }
 
-        // Fetch personalized content from Contentstack
-        const fetchPersonalizedContent = async () => {
+        // Track impression
+        const trackImpression = async () => {
             if (!personalizeSdk) {
                 console.log('[GoodRewardsContent] Personalize SDK not yet available');
                 return;
             }
 
             try {
-                console.log('[GoodRewardsContent] SDK available, fetching personalization attributes');
-
-                // Log the SDK object to see what's available
-                // console.log('[GoodRewardsContent] Personalize SDK methods:',
-                //     Object.keys(personalizeSdk)
-                //         .filter(key => typeof personalizeSdk[key] === 'function')
-                //         .join(', ')
-                // );
-
-                // Get individual attributes using our helper function
-                console.log('[GoodRewardsContent] Getting isRewardMember attribute');
-                const isRewardMember = getPersonalizeAttribute(personalizeSdk, 'isRewardMember', false);
-
-                console.log('[GoodRewardsContent] Getting isPremiumMember attribute');
-                const isPremiumMember = getPersonalizeAttribute(personalizeSdk, 'isPremiumMember', false);
-
-                console.log('[GoodRewardsContent] Getting eligibleForPromotion attribute');
-                const eligibleForPromotion = getPersonalizeAttribute(personalizeSdk, 'eligibleForPromotion', false);
-
-                console.log('[GoodRewardsContent] Personalize attributes retrieved:', {
-                    isRewardMember,
-                    isPremiumMember,
-                    eligibleForPromotion
-                });
-
-                // This would normally come from Contentstack, but for demo purposes
-                // we're using local variants based on membership status
-                let selectedVariant = 'default';
-
-                if (isRewardMember) {
-                    console.log('[GoodRewardsContent] User is a rewards member');
-                    // Check for premium status (this would be an attribute from your backend)
-                    if (isPremiumMember) {
-                        console.log('[GoodRewardsContent] User is a premium member');
-                        selectedVariant = 'premium';
-                    } else {
-                        console.log('[GoodRewardsContent] User is a basic member');
-                        selectedVariant = 'member';
-                    }
-                } else {
-                    console.log('[GoodRewardsContent] User is not a rewards member');
-                    selectedVariant = 'default';
-                }
-
-                // Check for promotional override (could come from Contentstack)
-                // This is a simplified example of how you might handle a time-based promotion
-                const isPromoWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
-                console.log('[GoodRewardsContent] Is weekend?', isPromoWeekend);
-                console.log('[GoodRewardsContent] Is eligible for promotion?', eligibleForPromotion);
-                const showPromo = isPromoWeekend && eligibleForPromotion;
-
-                if (showPromo) {
-                    console.log('[GoodRewardsContent] Showing promotional content');
-                    selectedVariant = 'promotion';
-                }
-
-                console.log(`[GoodRewardsContent] Selected variant: ${selectedVariant}`);
-                setContent(contentVariants[selectedVariant]);
-
-                // Track impression
-                console.log('[GoodRewardsContent] Tracking content impression');
-                try {
-                    if (typeof personalizeSdk.triggerImpression === 'function') {
-                        await personalizeSdk.triggerImpression('good-rewards-content');
-                        console.log('[GoodRewardsContent] Impression tracked successfully');
-                    } else {
-                        console.warn('[GoodRewardsContent] triggerImpression method not available on SDK');
-                    }
-                } catch (error) {
-                    console.error('[GoodRewardsContent] Error tracking impression:', error);
-                }
-
-            } catch (error:any) {
-                console.error('[GoodRewardsContent] Error fetching personalized content:', error);
-                console.error('[GoodRewardsContent] Error stack:', error.stack);
+                // Replace 'rewards-program-exp' with your actual experience short UID
+                await personalizeSdk.triggerImpression('rewards-program-exp');
+                console.log('[GoodRewardsContent] Impression tracked successfully');
+            } catch (error) {
+                console.error('[GoodRewardsContent] Error tracking impression:', error);
             }
         };
 
-        fetchPersonalizedContent();
-    }, [personalizeSdk]);
+        trackImpression();
+    }, [personalizeSdk, initialContent]);
 
     // Handle subscription changes
     const subscribe = async (shouldSubscribe: boolean) => {
@@ -293,56 +79,29 @@ const GoodRewardsContent = () => {
         // Update personalization attributes
         try {
             console.log('[GoodRewardsContent] Updating personalization attributes');
-            console.log('[GoodRewardsContent] Setting attributes:', {
+            await personalizeSdk.set({
                 isRewardMember: shouldSubscribe,
                 memberSince: shouldSubscribe ? new Date().toISOString() : null,
             });
 
-            if (typeof personalizeSdk.set === 'function') {
-                await personalizeSdk.set({
-                    isRewardMember: shouldSubscribe,
-                    memberSince: shouldSubscribe ? new Date().toISOString() : null,
-                });
-
-                console.log('[GoodRewardsContent] Personalization attributes updated successfully');
-            } else {
-                console.warn('[GoodRewardsContent] set method not available on SDK');
-            }
+            console.log('[GoodRewardsContent] Personalization attributes updated successfully');
 
             // Track event
-            console.log(`[GoodRewardsContent] Tracking ${shouldSubscribe ? 'join' : 'leave'} event`);
-            if (typeof personalizeSdk.triggerEvent === 'function') {
-                await personalizeSdk.triggerEvent(shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave');
-                console.log(`[GoodRewardsContent] Event tracked successfully`);
-            } else {
-                console.warn('[GoodRewardsContent] triggerEvent method not available on SDK');
-            }
-
-            // Reload content after subscription change
-            if (shouldSubscribe) {
-                console.log('[GoodRewardsContent] Updating to member content');
-                setContent(contentVariants.member);
-            } else {
-                console.log('[GoodRewardsContent] Updating to non-member content');
-                setContent(contentVariants.default);
-            }
+            await personalizeSdk.triggerEvent(shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave');
+            console.log(`[GoodRewardsContent] Event tracked successfully`);
 
             // Force a personalize update event to refresh other components
             const event = new Event('personalize-update');
             window.dispatchEvent(event);
-        } catch (error:any) {
+        } catch (error) {
             console.error('[GoodRewardsContent] Error updating personalization:', error);
-            console.error('[GoodRewardsContent] Error stack:', error.stack);
         }
     };
 
     // Show loading state during SSR
     if (!isClient) {
-        console.log('[GoodRewardsContent] Rendering loading state (not client-side yet)');
         return <div className="container flex-grow max-w-[800px] mx-auto py-10">Loading your rewards information...</div>;
     }
-
-    console.log('[GoodRewardsContent] Rendering content:', content.title);
 
     return (
         <div className="container flex-grow max-w-[800px] mx-auto py-10">

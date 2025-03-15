@@ -91,7 +91,7 @@ export const PageContent = () => {
         )}
         {!isSubscribed && (
             <>
-              <h2 className="text-2xl font-bold mb-8">Join Rewards Program</h2>
+              <h2 className="text-2xl font-bold mb-8">Good Rewards</h2>
               <div className="space-y-4">
                 <p>
                   Joining a rewards program can unlock a world of benefits and perks. By enrolling, customers gain access to
