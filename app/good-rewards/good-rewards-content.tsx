@@ -1,106 +1,279 @@
 'use client';
 
-import React from 'react';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePersonalize } from '@/components/context/PersonalizeContext';
 import { syncMembershipStatus } from '@/helpers/localStorage-sync';
 import { RewardsProgramContent } from './good-rewards-fetcher';
 
-// Define the props interface explicitly
 interface GoodRewardsContentProps {
     initialContent: RewardsProgramContent;
 }
 
-// Use React.FC to type the component properly
 const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent }) => {
-    console.log('[GoodRewardsContent] Component rendering with initial content:', initialContent);
+    console.log('[CLIENT][GoodRewardsContent] Component rendering with initial content:', initialContent);
 
     // Local state for subscription status
     const [isSubscribed, setIsSubscribed] = useState(false);
     const [isClient, setIsClient] = useState(false);
     const [content, setContent] = useState<RewardsProgramContent>(initialContent);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [showDetailedDebug, setShowDetailedDebug] = useState(false);
+    const [hasInitialized, setHasInitialized] = useState(false);
 
-    // Get personalize SDK instance
-    const personalizeSdk = usePersonalize();
+    // Get personalize context with initialization status
+    const { sdk, isInitialized, isInitializing, error } = usePersonalize();
 
     // Initialize on client side
     useEffect(() => {
-        console.log('[GoodRewardsContent] Component mounted');
-        setIsClient(true);
-
-        // Check localStorage for subscription status
-        try {
-            const value = window.localStorage.getItem('isSubscribed');
-            console.log('[GoodRewardsContent] Retrieved subscription status from localStorage:', value);
-            setIsSubscribed(value === 'true');
-        } catch (error) {
-            console.error('[GoodRewardsContent] Error accessing localStorage:', error);
-        }
-
-        // Track impression
-        const trackImpression = async () => {
-            if (!personalizeSdk) {
-                console.log('[GoodRewardsContent] Personalize SDK not yet available');
-                return;
-            }
-
-            try {
-                // Replace 'rewards-program-exp' with your actual experience short UID
-                await personalizeSdk.triggerImpression('rewards-program-exp');
-                console.log('[GoodRewardsContent] Impression tracked successfully');
-            } catch (error) {
-                console.error('[GoodRewardsContent] Error tracking impression:', error);
-            }
-        };
-
-        trackImpression();
-    }, [personalizeSdk, initialContent]);
-
-    // Handle subscription changes
-    const subscribe = async (shouldSubscribe: boolean) => {
-        console.log(`[GoodRewardsContent] User ${shouldSubscribe ? 'subscribing' : 'unsubscribing'} to rewards program`);
-
-        setIsSubscribed(shouldSubscribe);
-        try {
-            window.localStorage.setItem('isSubscribed', `${shouldSubscribe}`);
-            console.log('[GoodRewardsContent] Updated localStorage with subscription status');
-
-            // Call the sync function to notify other components
-            syncMembershipStatus(shouldSubscribe);
-        } catch (error) {
-            console.error('[GoodRewardsContent] Error updating localStorage:', error);
-        }
-
-        if (!personalizeSdk) {
-            console.warn('[GoodRewardsContent] Cannot update personalization - SDK not available');
+        if (hasInitialized) {
             return;
         }
 
-        // Update personalization attributes
-        try {
-            console.log('[GoodRewardsContent] Updating personalization attributes');
-            await personalizeSdk.set({
-                isRewardMember: shouldSubscribe,
-                memberSince: shouldSubscribe ? new Date().toISOString() : null,
-            });
+        console.log('[CLIENT][GoodRewardsContent] Component mounted');
+        setIsClient(true);
 
-            console.log('[GoodRewardsContent] Personalization attributes updated successfully');
+        const initializeState = async () => {
+            try {
+                // Check SDK state first if available
+                if (isInitialized && sdk) {
+                    try {
+                        // @ts-ignore - SDK type definitions are incomplete
+                        const sdkState = await sdk.get();
+                        console.log('[CLIENT][GoodRewardsContent] SDK state:', sdkState);
+                        const isMember = sdkState?.isRewardMember === true;
+                        
+                        // Update localStorage to match SDK state
+                        window.localStorage.setItem('isSubscribed', `${isMember}`);
+                        setIsSubscribed(isMember);
+                        console.log('[CLIENT][GoodRewardsContent] Updated subscription status from SDK:', isMember);
+
+                        // Update content based on membership status
+                        if (isMember && initialContent.title === "Join Good Rewards Today") {
+                            // If member but showing join page, redirect to member page
+                            window.location.href = '/good-rewards?member=1';
+                            return;
+                        }
+                        
+                        // Track impression after state is confirmed
+                        await trackImpression();
+                        setHasInitialized(true);
+                        return;
+                    } catch (err) {
+                        console.warn('[CLIENT][GoodRewardsContent] Could not get SDK state:', err);
+                    }
+                }
+
+                // Fallback to localStorage if SDK state is not available
+                const value = window.localStorage.getItem('isSubscribed');
+                console.log('[CLIENT][GoodRewardsContent] Retrieved subscription status from localStorage:', value);
+                const isMember = value === 'true';
+                setIsSubscribed(isMember);
+
+                // Update content based on membership status
+                if (isMember && initialContent.title === "Join Good Rewards Today") {
+                    // If member but showing join page, redirect to member page
+                    window.location.href = '/good-rewards?member=1';
+                    return;
+                }
+
+                setHasInitialized(true);
+            } catch (error) {
+                console.error('[CLIENT][GoodRewardsContent] Error during initialization:', error);
+                setHasInitialized(true);
+            }
+        };
+
+        initializeState();
+    }, [isInitialized, sdk, hasInitialized, initialContent]);
+
+    // Function to track impression
+    const trackImpression = async () => {
+        if (!isInitialized || !sdk) {
+            console.log('[CLIENT][GoodRewardsContent] Cannot track impression - SDK not initialized');
+            return;
+        }
+
+        try {
+            await sdk.triggerImpression('rewards-program-exp');
+            console.log('[CLIENT][GoodRewardsContent] Impression tracked successfully');
+        } catch (error) {
+            console.error('[CLIENT][GoodRewardsContent] Error tracking impression:', error);
+        }
+    };
+
+    // Handle subscription changes
+    const subscribe = async (shouldSubscribe: boolean) => {
+        console.log(`[CLIENT][GoodRewardsContent] User ${shouldSubscribe ? 'subscribing' : 'unsubscribing'} to rewards program`);
+        console.log('[CLIENT][GoodRewardsContent] SDK state:', { isInitialized, sdk });
+        
+        // Double check subscription status before proceeding
+        const currentStatus = window.localStorage.getItem('isSubscribed') === 'true';
+        if (shouldSubscribe && currentStatus) {
+            console.log('[CLIENT][GoodRewardsContent] User is already subscribed, ignoring join request');
+            window.location.href = '/good-rewards?member=1';
+            return;
+        }
+        if (!shouldSubscribe && !currentStatus) {
+            console.log('[CLIENT][GoodRewardsContent] User is not subscribed, ignoring leave request');
+            window.location.href = '/good-rewards';
+            return;
+        }
+
+        setIsRefreshing(true);
+
+        try {
+            // Check if SDK is initialized first
+            if (!isInitialized || !sdk) {
+                console.warn('[CLIENT][GoodRewardsContent] Cannot update personalization - SDK not initialized');
+                setIsRefreshing(false);
+                return;
+            }
+
+            // Log current state before update
+            try {
+                // @ts-ignore - SDK type definitions are incomplete
+                const currentState = await sdk.get();
+                console.log('[CLIENT][GoodRewardsContent] Current user state:', currentState);
+            } catch (err) {
+                console.warn('[CLIENT][GoodRewardsContent] Could not get current state:', err);
+            }
+
+            // Update personalization attributes first
+            const newAttributes = {
+                isRewardMember: shouldSubscribe,
+                isPremiumMember: false,
+                memberSince: shouldSubscribe ? new Date().toISOString() : null,
+                lastUpdated: new Date().toISOString()
+            };
+
+            console.log('[CLIENT][GoodRewardsContent] Attempting to update attributes:', newAttributes);
+
+            try {
+                // @ts-ignore - SDK type definitions are incomplete
+                await sdk.set(newAttributes);
+                console.log('[CLIENT][GoodRewardsContent] Successfully updated SDK attributes');
+            } catch (err) {
+                console.error('[CLIENT][GoodRewardsContent] Failed to update SDK attributes:', err);
+                throw err;
+            }
+
+            // Update localStorage and cookie synchronously
+            try {
+                window.localStorage.setItem('isSubscribed', `${shouldSubscribe}`);
+                document.cookie = `isSubscribed=${shouldSubscribe}; path=/; max-age=86400`;
+                console.log('[CLIENT][GoodRewardsContent] Successfully updated localStorage and cookies');
+            } catch (err) {
+                console.error('[CLIENT][GoodRewardsContent] Failed to update localStorage/cookies:', err);
+                // Continue execution as this is not critical
+            }
+
+            // Call the sync function to notify other components
+            try {
+                syncMembershipStatus(shouldSubscribe);
+                console.log('[CLIENT][GoodRewardsContent] Successfully synced membership status');
+            } catch (err) {
+                console.error('[CLIENT][GoodRewardsContent] Failed to sync membership status:', err);
+                // Continue execution as this is not critical
+            }
 
             // Track event
-            await personalizeSdk.triggerEvent(shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave');
-            console.log(`[GoodRewardsContent] Event tracked successfully`);
+            try {
+                const eventName = shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave';
+                await sdk.triggerEvent(eventName);
+                console.log(`[CLIENT][GoodRewardsContent] Successfully tracked event: ${eventName}`);
+            } catch (err) {
+                console.error('[CLIENT][GoodRewardsContent] Failed to track event:', err);
+                // Continue execution as this is not critical
+            }
 
-            // Force a personalize update event to refresh other components
-            const event = new Event('personalize-update');
-            window.dispatchEvent(event);
+            // Verify final state before redirect
+            try {
+                // @ts-ignore - SDK type definitions are incomplete
+                const finalState = await sdk.get();
+                console.log('[CLIENT][GoodRewardsContent] Final user state before redirect:', finalState);
+            } catch (err) {
+                console.warn('[CLIENT][GoodRewardsContent] Could not get final state:', err);
+            }
+
+            // Get the current URL and prepare for redirect
+            const url = new URL('/good-rewards', window.location.origin);
+            
+            // Add minimal parameters for cache busting
+            const timestamp = Date.now().toString();
+            url.searchParams.set('t', timestamp);
+            
+            // Add member status parameter
+            url.searchParams.set('member', shouldSubscribe ? '1' : '0');
+
+            console.log('[CLIENT][GoodRewardsContent] Redirecting to:', url.toString());
+
+            // Reload immediately after state is updated
+            window.location.href = url.toString();
+
         } catch (error) {
-            console.error('[GoodRewardsContent] Error updating personalization:', error);
+            console.error('[CLIENT][GoodRewardsContent] Critical error in subscription process:', error);
+            setIsRefreshing(false);
+            // Show error state in debug section
+            setShowDetailedDebug(true);
         }
     };
 
     // Show loading state during SSR
     if (!isClient) {
         return <div className="container flex-grow max-w-[800px] mx-auto py-10">Loading your rewards information...</div>;
+    }
+
+    // Show SDK initializing state
+    if (isInitializing) {
+        return (
+            <div className="container flex-grow max-w-[800px] mx-auto py-10">
+                <div className="bg-white shadow-lg rounded-lg overflow-hidden p-6 text-center">
+                    <svg className="animate-spin h-10 w-10 text-blue-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p className="text-lg font-medium">Initializing personalization...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // Show SDK error state
+    if (error) {
+        return (
+            <div className="container flex-grow max-w-[800px] mx-auto py-10">
+                <div className="bg-white shadow-lg rounded-lg overflow-hidden p-6 text-center">
+                    <div className="text-red-500 mb-4">
+                        <svg className="h-10 w-10 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+                    <p className="text-lg font-medium">Error initializing personalization</p>
+                    <p className="text-sm text-gray-600 mt-2">{error.message}</p>
+                    <button
+                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                        onClick={() => window.location.reload()}
+                    >
+                        Try Again
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // Show refreshing state
+    if (isRefreshing) {
+        return (
+            <div className="container flex-grow max-w-[800px] mx-auto py-10">
+                <div className="bg-white shadow-lg rounded-lg overflow-hidden p-6 text-center">
+                    <svg className="animate-spin h-10 w-10 text-blue-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p className="text-lg font-medium">Updating your membership status...</p>
+                </div>
+            </div>
+        );
     }
 
     return (
@@ -131,7 +304,7 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
                     </div>
 
                     {/* Tier information for members */}
-                    {content.tierInfo && (
+                    {isSubscribed && content.tierInfo && content.title !== "Join Good Rewards Today" && (
                         <div className="bg-gray-50 p-4 rounded-lg mb-6">
                             <h3 className="text-lg font-semibold mb-2">Your Membership Status</h3>
                             <div className="flex justify-between mb-2">
@@ -182,6 +355,41 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
                         </div>
                     )}
 
+                    {/* Enhanced Debug section */}
+                    <div className="mb-6 p-3 border border-gray-300 rounded bg-gray-50 text-xs">
+                        <div className="flex justify-between items-center">
+                            <p className="font-bold text-sm">Debug Info:</p>
+                            <button
+                                className="text-blue-600 hover:underline text-xs"
+                                onClick={() => setShowDetailedDebug(!showDetailedDebug)}
+                            >
+                                {showDetailedDebug ? 'Hide Details' : 'Show Details'}
+                            </button>
+                        </div>
+                        <p>Content Title: {content.title}</p>
+                        <p>IsSubscribed state: {isSubscribed ? 'true' : 'false'}</p>
+                        <p>LocalStorage isSubscribed: {typeof window !== 'undefined' ? window.localStorage.getItem('isSubscribed') : 'N/A'}</p>
+                        <p>SDK Initialized: {isInitialized ? 'Yes' : 'No'}</p>
+                        <p>Has SDK: {sdk ? 'Yes' : 'No'}</p>
+                        {content.debugInfo && showDetailedDebug && (
+                            <div className="mt-2 pt-2 border-t border-gray-200">
+                                <p className="font-bold">Server-side Debug:</p>
+                                <p>Variant Used: {content.debugInfo.variantUsed}</p>
+                                <p>Request Time: {content.debugInfo.requestTimestamp}</p>
+                                <p>Entry ID: {content.debugInfo.entryId}</p>
+                                <p>Request Path: {content.debugInfo.requestPath}</p>
+                                {content.debugInfo.cookies && (
+                                    <div className="mt-1">
+                                        <p className="font-bold">Cookies:</p>
+                                        <div className="mt-1 bg-white p-1 rounded text-xs overflow-x-auto max-h-32">
+                                            <pre>{JSON.stringify(content.debugInfo.cookies, null, 2)}</pre>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
                     {/* CTA button */}
                     <div className="mt-6">
                         {isSubscribed ? (
@@ -194,18 +402,27 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
                                 <button
                                     id="unsubscribe"
                                     className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded transition-colors"
-                                    onClick={() => subscribe(false)}
+                                    onClick={() => {
+                                        console.log('[CLIENT][GoodRewardsContent] Unsubscribe button clicked');
+                                        subscribe(false);
+                                    }}
+                                    disabled={isRefreshing}
                                 >
                                     Leave Program
                                 </button>
                             </div>
                         ) : (
                             <button
+                                type="button"
                                 id="subscribe"
                                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition-colors"
-                                onClick={() => subscribe(true)}
+                                onClick={() => {
+                                    console.log('[CLIENT][GoodRewardsContent] Join Now button clicked');
+                                    subscribe(true);
+                                }}
+                                disabled={isRefreshing}
                             >
-                                {content.ctaText}
+                                {content.ctaText || 'Join Now'}
                             </button>
                         )}
                     </div>

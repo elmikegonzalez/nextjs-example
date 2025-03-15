@@ -77,167 +77,145 @@ const PersonalizedRewardsLink = () => {
     // State to store the personalized link text
     const [linkText, setLinkText] = useState("Good Rewards");
     const [linkPath, setLinkPath] = useState("/good-rewards");
+    const [isUpdating, setIsUpdating] = useState(false);
+    const hasInitialized = React.useRef(false);
+    const skipNextUpdate = React.useRef(false);
 
     // Get the Personalize SDK from context
-    const personalizeSdk = usePersonalize();
+    const { sdk, isInitialized } = usePersonalize();
 
     // Get the authentication session
     const { data: session, status } = useSession();
     const isAuthenticated = status === 'authenticated';
+    const previousStatus = React.useRef(status);
 
-    // Effect to update link text based on user attributes
+    // Handle initialization and session changes
     useEffect(() => {
-        console.log('[PersonalizedRewardsLink] Component mounted');
-        console.log('[PersonalizedRewardsLink] Personalize SDK object:', personalizeSdk);
-        console.log('[PersonalizedRewardsLink] Session status:', status);
+        // Skip if we're in the middle of an update or if we should skip this update
+        if (isUpdating || skipNextUpdate.current) {
+            skipNextUpdate.current = false;
+            return;
+        }
 
-        const getPersonalizedLink = async () => {
-            // Skip if SDK isn't available yet
-            if (!personalizeSdk) {
-                console.log('[PersonalizedRewardsLink] Personalize SDK not yet available');
-                return;
-            }
-
-            console.log('[PersonalizedRewardsLink] SDK available, getting user attributes');
-
+        const handleStateChange = async () => {
             try {
-                // Check localStorage first for subscription status as a backup
-                let isSubscribedFromStorage = false;
-                try {
-                    const value = window.localStorage.getItem('isSubscribed');
-                    console.log('[PersonalizedRewardsLink] Retrieved subscription status from localStorage:', value);
-                    isSubscribedFromStorage = value === 'true';
-                } catch (error) {
-                    console.error('[PersonalizedRewardsLink] Error accessing localStorage:', error);
-                }
+                setIsUpdating(true);
 
-                // Get individual attributes using our helper function
-                console.log('[PersonalizedRewardsLink] Getting isRewardMember attribute');
-                const isRewardMember = getPersonalizeAttribute(personalizeSdk, 'isRewardMember', isSubscribedFromStorage);
+                // Handle sign out
+                if (previousStatus.current === 'authenticated' && status === 'unauthenticated') {
+                    // Clear local state
+                    localStorage.removeItem('isSubscribed');
+                    document.cookie = 'isSubscribed=false; path=/';
 
-                console.log('[PersonalizedRewardsLink] Getting isPremiumMember attribute');
-                const isPremiumMember = getPersonalizeAttribute(personalizeSdk, 'isPremiumMember', false);
-
-                console.log('[PersonalizedRewardsLink] User attributes retrieved:', {
-                    isRewardMember,
-                    isSubscribedFromStorage,
-                    isPremiumMember,
-                    isAuthenticated
-                });
-
-                // Determine link text based on membership status and authentication
-                let newLinkText: string;
-                let newLinkPath: string = "/good-rewards";
-
-                // Use either SDK's isRewardMember OR localStorage's isSubscribed
-                const isMember = isRewardMember || isSubscribedFromStorage;
-
-                if (isMember) {
-                    if (isPremiumMember) {
-                        newLinkText = "Icon Rewards";
-                    } else {
-                        newLinkText = "Core Rewards";
+                    // Clear SDK attributes if available
+                    if (isInitialized && sdk) {
+                        try {
+                            // @ts-ignore - SDK type definitions are incomplete
+                            await sdk.setUserAttributes({
+                                isRewardMember: false,
+                                isPremiumMember: false
+                            });
+                        } catch (sdkError) {
+                            console.warn('[PersonalizedRewardsLink] Could not clear SDK attributes:', sdkError);
+                        }
                     }
-                } else {
-                    // Not a member
-                    if (isAuthenticated) {
-                        newLinkText = "Join Rewards";
-                    } else {
-                        newLinkText = "Good Rewards";
-                        // If not authenticated, clicking should prompt to login first
-                        newLinkPath = "/api/auth/signin"; // NextAuth signin route
-                    }
+
+                    // Update UI directly
+                    setLinkText("Good Rewards");
+                    setLinkPath("/good-rewards");
+                    hasInitialized.current = false;
+                    skipNextUpdate.current = true;
                 }
+                // Handle initialization only if SDK is ready and we haven't initialized yet
+                else if (isInitialized && sdk && !hasInitialized.current && status !== 'loading') {
+                    const isSubscribed = localStorage.getItem('isSubscribed') === 'true';
+                    const isRewardMember = getPersonalizeAttribute(sdk, 'isRewardMember', isSubscribed);
+                    const isPremiumMember = getPersonalizeAttribute(sdk, 'isPremiumMember', false);
 
-                console.log(`[PersonalizedRewardsLink] Setting link text to: "${newLinkText}"`);
-                setLinkText(newLinkText);
-                setLinkPath(newLinkPath);
+                    let newLinkText: string;
+                    let newLinkPath: string = "/good-rewards";
 
-                // Optional: Track navigation impression
-                console.log('[PersonalizedRewardsLink] Triggering impression for rewards-nav-link');
-                try {
-                    if (typeof personalizeSdk.triggerImpression === 'function') {
-                        await personalizeSdk.triggerImpression('rewards-nav-link');
-                        console.log('[PersonalizedRewardsLink] Impression tracked successfully');
+                    if (isRewardMember || isSubscribed) {
+                        newLinkText = isPremiumMember ? "Icon Rewards" : "Core Rewards";
                     } else {
-                        console.warn('[PersonalizedRewardsLink] triggerImpression method not available on SDK');
+                        if (isAuthenticated) {
+                            newLinkText = "Join Rewards";
+                        } else {
+                            newLinkText = "Good Rewards";
+                            newLinkPath = `/api/auth/signin?callbackUrl=${encodeURIComponent('/good-rewards?post_sub=1')}`;
+                        }
                     }
-                } catch (error) {
-                    console.error('[PersonalizedRewardsLink] Error tracking impression:', error);
-                }
 
-            } catch (error) {
-                console.error('[PersonalizedRewardsLink] Error personalizing rewards link:', error);
-                // Fallback to default text
-                console.log('[PersonalizedRewardsLink] Using fallback link text "Rewards"');
-                setLinkText("Rewards");
+                    setLinkText(newLinkText);
+                    setLinkPath(newLinkPath);
+                    hasInitialized.current = true;
+                    skipNextUpdate.current = true;
+                }
+            } finally {
+                setIsUpdating(false);
+                previousStatus.current = status;
             }
         };
 
-        // Call the function when SDK is available
-        getPersonalizedLink();
+        handleStateChange();
+    }, [status, sdk, isInitialized, isUpdating, isAuthenticated]);
 
-        // Add a localStorage event listener to catch subscription changes
-        const storageHandler = (e: StorageEvent) => {
-            if (e.key === 'isSubscribed') {
-                console.log('[PersonalizedRewardsLink] Detected localStorage change for isSubscribed:', e.newValue);
-                getPersonalizedLink();
-            }
-        };
-        window.addEventListener('storage', storageHandler);
+    const handleLinkClick = async (e: React.MouseEvent) => {
+        const currentUrl = new URL(window.location.href);
+        const isPostAuth = currentUrl.searchParams.has('post_sub');
+        const isGoodRewardsPage = currentUrl.pathname === '/good-rewards';
+        const isSigningOut = status === 'loading' || (previousStatus.current === 'authenticated' && status === 'unauthenticated');
+        
+        if (isPostAuth || isUpdating || isSigningOut) {
+            return;
+        }
 
-        // Listen for our custom event too
-        const storageUpdateHandler = () => {
-            console.log('[PersonalizedRewardsLink] Detected storage-updated event');
-            getPersonalizedLink();
-        };
-        window.addEventListener('storage-updated', storageUpdateHandler);
+        if (!isAuthenticated) {
+            return;
+        }
 
-        // Set up event listener for personalization changes
-        const handlePersonalizeUpdate = () => {
-            console.log('[PersonalizedRewardsLink] Personalization update event received, refreshing link');
-            getPersonalizedLink();
-        };
+        if (isGoodRewardsPage) {
+            e.preventDefault();
+        }
 
-        window.addEventListener('personalize-update', handlePersonalizeUpdate);
-        console.log('[PersonalizedRewardsLink] Added event listeners');
-
-        // Also poll for changes every few seconds (as a fallback)
-        // const intervalId = setInterval(() => {
-        //     getPersonalizedLink();
-        // }, 5000);
-
-        // Clean up event listeners and interval
-        return () => {
-            console.log('[PersonalizedRewardsLink] Component unmounting, removing event listeners');
-            window.removeEventListener('personalize-update', handlePersonalizeUpdate);
-            window.removeEventListener('storage', storageHandler);
-            window.removeEventListener('storage-updated', storageUpdateHandler);
-            // clearInterval(intervalId);
-        };
-    }, [personalizeSdk, status, isAuthenticated]);
-
-    const handleLinkClick = async () => {
-        console.log('[PersonalizedRewardsLink] Link clicked');
-
-        if (personalizeSdk) {
-            console.log('[PersonalizedRewardsLink] SDK available, tracking rewards-link-click event');
+        if (isInitialized && sdk) {
             try {
-                if (typeof personalizeSdk.triggerEvent === 'function') {
-                    await personalizeSdk.triggerEvent('rewards-link-click');
-                    console.log('[PersonalizedRewardsLink] Click event tracked successfully');
-                } else {
-                    console.warn('[PersonalizedRewardsLink] triggerEvent method not available on SDK');
+                setIsUpdating(true);
+
+                // Update state
+                localStorage.setItem('isSubscribed', 'true');
+                document.cookie = 'isSubscribed=true; path=/';
+
+                // Update SDK attributes
+                if (typeof sdk.setUserAttributes === 'function') {
+                    // @ts-ignore - SDK type definitions are incomplete
+                    await sdk.setUserAttributes({
+                        isRewardMember: true,
+                        isPremiumMember: false
+                    });
+                }
+
+                // Track the event if needed
+                if (typeof sdk.triggerEvent === 'function') {
+                    await sdk.triggerEvent('rewards-link-click');
+                }
+
+                // Update UI state
+                setLinkText("Core Rewards");
+
+                // Only redirect if necessary
+                if (!isGoodRewardsPage) {
+                    const targetUrl = new URL('/good-rewards', window.location.origin);
+                    targetUrl.searchParams.set('post_sub', '1');
+                    window.location.href = targetUrl.toString();
                 }
             } catch (error) {
-                console.error('[PersonalizedRewardsLink] Error tracking click event:', error);
+                console.error('[PersonalizedRewardsLink] Error:', error);
+            } finally {
+                setIsUpdating(false);
             }
-        } else {
-            console.warn('[PersonalizedRewardsLink] Cannot track click - SDK not available');
         }
     };
-
-    console.log(`[PersonalizedRewardsLink] Rendering with link text: "${linkText}" and path: "${linkPath}"`);
 
     return (
         <Link

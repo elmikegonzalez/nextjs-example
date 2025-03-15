@@ -1,20 +1,35 @@
 'use client';
 
 import { useEffect } from 'react';
-
 import { usePersonalize } from './context/PersonalizeContext';
 
 export const Impressions = ({ experienceShortUids }: { experienceShortUids: string[] }) => {
-  const personalizeSdk = usePersonalize();
+  // Get SDK and initialization state from context
+  const { sdk, isInitialized } = usePersonalize();
+
   useEffect(() => {
-    async function runEffect() {
-      experienceShortUids
-        .forEach(async (experienceShortUid) => {
-          await personalizeSdk?.triggerImpression(experienceShortUid);
-        });
+    async function trackImpressions() {
+      // Skip if SDK is not initialized
+      if (!isInitialized || !sdk) {
+        console.log('Personalize SDK not initialized yet, impressions not tracked');
+        return;
+      }
+
+      console.log('Tracking impressions for experiences:', experienceShortUids);
+
+      // Track impressions for each experience
+      try {
+        for (const experienceShortUid of experienceShortUids) {
+          await sdk.triggerImpression(experienceShortUid);
+          console.log(`Impression tracked successfully for ${experienceShortUid}`);
+        }
+      } catch (error) {
+        console.error('Error tracking impressions:', error);
+      }
     }
-    runEffect();
-  }, [personalizeSdk]);
+
+    trackImpressions();
+  }, [sdk, isInitialized, experienceShortUids]);
 
   return <></>;
 }

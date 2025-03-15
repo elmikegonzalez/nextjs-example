@@ -8,7 +8,10 @@ export const PageContent = () => {
   // Initialize with a default value
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isClient, setIsClient] = useState(false);
-  const personalizeSdk = usePersonalize();
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Get SDK and initialization state from context
+  const { sdk, isInitialized } = usePersonalize();
 
   // Use useEffect to detect client-side rendering and access localStorage
   useEffect(() => {
@@ -22,6 +25,7 @@ export const PageContent = () => {
   }, []);
 
   const subscribe = async (shouldSubscribe: boolean) => {
+    setIsLoading(true);
     setIsSubscribed(shouldSubscribe);
 
     try {
@@ -33,29 +37,52 @@ export const PageContent = () => {
       syncMembershipStatus(shouldSubscribe);
 
       // Update personalization SDK attributes
-      if (personalizeSdk) {
-        await personalizeSdk.set({
+      if (isInitialized && sdk) {
+        await sdk.set({
           isRewardMember: shouldSubscribe,
           memberSince: shouldSubscribe ? new Date().toISOString() : null,
         });
         console.log(`[RewardsProgram] Updated personalization attributes: isRewardMember=${shouldSubscribe}`);
 
         // Trigger relevant event
-        await personalizeSdk.triggerEvent(shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave');
+        await sdk.triggerEvent(shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave');
         console.log(`[RewardsProgram] Triggered event: ${shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave'}`);
+      } else {
+        console.log('[RewardsProgram] SDK not initialized, personalization not updated');
       }
 
       // Force a refresh event
       const event = new Event('personalize-update');
       window.dispatchEvent(event);
+
+      // Hard refresh the page to get new content
+      setTimeout(() => {
+        window.location.href = `/rewards-program?t=${Date.now()}`;
+      }, 1000);
     } catch (e) {
       console.error('[RewardsProgram] Error updating membership status:', e);
+      setIsLoading(false);
     }
   };
 
   // If not on client yet, return a loading state or minimal UI
   if (!isClient) {
     return <div className="container flex-grow max-w-[800px] mx-auto py-10">Loading...</div>;
+  }
+
+  // Show loading state while updating subscription
+  if (isLoading) {
+    return (
+        <div className="container flex-grow max-w-[800px] mx-auto py-10">
+          <div className="text-center p-8">
+            <svg className="animate-spin h-10 w-10 text-blue-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p className="text-lg font-medium">Updating subscription status...</p>
+          </div>
+        </div>
+    );
   }
 
   return (
@@ -83,6 +110,7 @@ export const PageContent = () => {
                     id="unsubscribe"
                     className="px-4 py-2 bg-blue-600 rounded-lg text-blue-50 text-sm font-semibold"
                     onClick={() => subscribe(false)}
+                    disabled={isLoading}
                 >
                   Unsubscribe
                 </button>
@@ -111,15 +139,16 @@ export const PageContent = () => {
                   shopping experience while enjoying additional benefits from their favorite brands.
                 </p>
               </div>
-              {/*<div className="mt-8 flex items-center justify-end">*/}
-              {/*  <button*/}
-              {/*      id="subscribe"*/}
-              {/*      className="px-4 py-2 bg-blue-600 rounded-lg text-blue-50 text-sm font-semibold"*/}
-              {/*      onClick={() => subscribe(true)}*/}
-              {/*  >*/}
-              {/*    Join Now*/}
-              {/*  </button>*/}
-              {/*</div>*/}
+              <div className="mt-8 flex items-center justify-end">
+                <button
+                    id="subscribe"
+                    className="px-4 py-2 bg-blue-600 rounded-lg text-blue-50 text-sm font-semibold"
+                    onClick={() => subscribe(true)}
+                    disabled={isLoading}
+                >
+                  Join Now
+                </button>
+              </div>
             </>
         )}
       </div>
