@@ -37,29 +37,38 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
                 // Check SDK state first if available
                 if (isInitialized && sdk) {
                     try {
-                        // @ts-ignore - SDK type definitions are incomplete
-                        const sdkState = await sdk.get();
-                        console.log('[CLIENT][GoodRewardsContent] SDK state:', sdkState);
-                        const isMember = sdkState?.isRewardMember === true;
+                        // Log SDK state for debugging
+                        console.log('[CLIENT][GoodRewardsContent] SDK object:', {
+                            methods: Object.keys(sdk).filter(key => typeof sdk[key] === 'function')
+                        });
                         
-                        // Update localStorage to match SDK state
-                        window.localStorage.setItem('isSubscribed', `${isMember}`);
-                        setIsSubscribed(isMember);
-                        console.log('[CLIENT][GoodRewardsContent] Updated subscription status from SDK:', isMember);
+                        // Get user attributes using the correct SDK method
+                        try {
+                            const sdkState = await sdk.get();
+                            console.log('[CLIENT][GoodRewardsContent] SDK state:', sdkState);
+                            const isMember = sdkState?.isRewardMember === true;
+                            
+                            // Update localStorage to match SDK state
+                            window.localStorage.setItem('isSubscribed', `${isMember}`);
+                            setIsSubscribed(isMember);
+                            console.log('[CLIENT][GoodRewardsContent] Updated subscription status from SDK:', isMember);
 
-                        // Update content based on membership status
-                        if (isMember && initialContent.title === "Join Good Rewards Today") {
-                            // If member but showing join page, redirect to member page
-                            window.location.href = '/good-rewards?member=1';
+                            // Update content based on membership status
+                            if (isMember && initialContent.title === "Join Good Rewards Today") {
+                                // If member but showing join page, redirect to member page
+                                window.location.href = '/good-rewards?member=1';
+                                return;
+                            }
+                            
+                            // Track impression after state is confirmed
+                            await trackImpression();
+                            setHasInitialized(true);
                             return;
+                        } catch (err) {
+                            console.warn('[CLIENT][GoodRewardsContent] Could not get SDK state:', err);
                         }
-                        
-                        // Track impression after state is confirmed
-                        await trackImpression();
-                        setHasInitialized(true);
-                        return;
                     } catch (err) {
-                        console.warn('[CLIENT][GoodRewardsContent] Could not get SDK state:', err);
+                        console.warn('[CLIENT][GoodRewardsContent] Error accessing SDK:', err);
                     }
                 }
 
@@ -131,7 +140,6 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
 
             // Log current state before update
             try {
-                // @ts-ignore - SDK type definitions are incomplete
                 const currentState = await sdk.get();
                 console.log('[CLIENT][GoodRewardsContent] Current user state:', currentState);
             } catch (err) {
@@ -149,66 +157,43 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
             console.log('[CLIENT][GoodRewardsContent] Attempting to update attributes:', newAttributes);
 
             try {
-                // @ts-ignore - SDK type definitions are incomplete
                 await sdk.set(newAttributes);
                 console.log('[CLIENT][GoodRewardsContent] Successfully updated SDK attributes');
+
+                // Track join/leave event
+                const eventName = shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave';
+                await sdk.triggerEvent(eventName);
+                console.log(`[CLIENT][GoodRewardsContent] Successfully tracked event: ${eventName}`);
+
+                // Update localStorage and cookie synchronously
+                try {
+                    window.localStorage.setItem('isSubscribed', `${shouldSubscribe}`);
+                    document.cookie = `isSubscribed=${shouldSubscribe}; path=/; max-age=86400`;
+                    console.log('[CLIENT][GoodRewardsContent] Successfully updated localStorage and cookies');
+                } catch (err) {
+                    console.error('[CLIENT][GoodRewardsContent] Failed to update localStorage/cookies:', err);
+                }
+
+                // Call the sync function to notify other components
+                try {
+                    syncMembershipStatus(shouldSubscribe);
+                    console.log('[CLIENT][GoodRewardsContent] Successfully synced membership status');
+                } catch (err) {
+                    console.error('[CLIENT][GoodRewardsContent] Failed to sync membership status:', err);
+                }
+
+                // Let the server handle variants by redirecting with member status
+                const url = new URL('/good-rewards', window.location.origin);
+                url.searchParams.set('member', shouldSubscribe ? '1' : '0');
+                url.searchParams.set('t', Date.now().toString()); // Cache busting
+                
+                console.log('[CLIENT][GoodRewardsContent] Redirecting to:', url.toString());
+                window.location.href = url.toString();
+
             } catch (err) {
                 console.error('[CLIENT][GoodRewardsContent] Failed to update SDK attributes:', err);
                 throw err;
             }
-
-            // Update localStorage and cookie synchronously
-            try {
-                window.localStorage.setItem('isSubscribed', `${shouldSubscribe}`);
-                document.cookie = `isSubscribed=${shouldSubscribe}; path=/; max-age=86400`;
-                console.log('[CLIENT][GoodRewardsContent] Successfully updated localStorage and cookies');
-            } catch (err) {
-                console.error('[CLIENT][GoodRewardsContent] Failed to update localStorage/cookies:', err);
-                // Continue execution as this is not critical
-            }
-
-            // Call the sync function to notify other components
-            try {
-                syncMembershipStatus(shouldSubscribe);
-                console.log('[CLIENT][GoodRewardsContent] Successfully synced membership status');
-            } catch (err) {
-                console.error('[CLIENT][GoodRewardsContent] Failed to sync membership status:', err);
-                // Continue execution as this is not critical
-            }
-
-            // Track event
-            try {
-                const eventName = shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave';
-                await sdk.triggerEvent(eventName);
-                console.log(`[CLIENT][GoodRewardsContent] Successfully tracked event: ${eventName}`);
-            } catch (err) {
-                console.error('[CLIENT][GoodRewardsContent] Failed to track event:', err);
-                // Continue execution as this is not critical
-            }
-
-            // Verify final state before redirect
-            try {
-                // @ts-ignore - SDK type definitions are incomplete
-                const finalState = await sdk.get();
-                console.log('[CLIENT][GoodRewardsContent] Final user state before redirect:', finalState);
-            } catch (err) {
-                console.warn('[CLIENT][GoodRewardsContent] Could not get final state:', err);
-            }
-
-            // Get the current URL and prepare for redirect
-            const url = new URL('/good-rewards', window.location.origin);
-            
-            // Add minimal parameters for cache busting
-            const timestamp = Date.now().toString();
-            url.searchParams.set('t', timestamp);
-            
-            // Add member status parameter
-            url.searchParams.set('member', shouldSubscribe ? '1' : '0');
-
-            console.log('[CLIENT][GoodRewardsContent] Redirecting to:', url.toString());
-
-            // Reload immediately after state is updated
-            window.location.href = url.toString();
 
         } catch (error) {
             console.error('[CLIENT][GoodRewardsContent] Critical error in subscription process:', error);
@@ -292,14 +277,50 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
                     <div className="mb-6">
                         <h3 className="text-lg font-semibold mb-3">Program Benefits</h3>
                         <ul className="space-y-2">
-                            {content.benefits.map((benefit, index) => (
-                                <li key={index} className="flex items-start">
-                                    <svg className="h-5 w-5 text-blue-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    <span>{benefit}</span>
-                                </li>
-                            ))}
+                            {content.benefits.map((benefit, index) => {
+                                // Determine which icon to show based on the benefit text
+                                let icon;
+                                const lowerBenefit = benefit.toLowerCase();
+                                if (lowerBenefit.includes('point') || lowerBenefit.includes('earn')) {
+                                    icon = (
+                                        <svg className="h-5 w-5 text-blue-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    );
+                                } else if (lowerBenefit.includes('shipping')) {
+                                    icon = (
+                                        <svg className="h-5 w-5 text-blue-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                                        </svg>
+                                    );
+                                } else if (lowerBenefit.includes('early access') || lowerBenefit.includes('exclusive')) {
+                                    icon = (
+                                        <svg className="h-5 w-5 text-blue-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                                        </svg>
+                                    );
+                                } else if (lowerBenefit.includes('birthday') || lowerBenefit.includes('gift')) {
+                                    icon = (
+                                        <svg className="h-5 w-5 text-blue-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+                                        </svg>
+                                    );
+                                } else {
+                                    // Default checkmark icon for other benefits
+                                    icon = (
+                                        <svg className="h-5 w-5 text-blue-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    );
+                                }
+
+                                return (
+                                    <li key={index} className="flex items-start">
+                                        {icon}
+                                        <span>{benefit}</span>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     </div>
 

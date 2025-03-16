@@ -8,7 +8,7 @@ import axios, { AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
 interface ContentstackEntry {
     title: string;
     description: string;
-    benefits_list: string[];
+    benefits: any[];
     cta_text: string;
     tier_info?: {
         current_tier?: string;
@@ -32,7 +32,7 @@ export interface RewardsProgramContent {
         pointsToNextTier?: number;
     };
     promotionalMessage?: string;
-    // Debug info
+    // Enhanced debug info
     debugInfo?: {
         variantUsed?: string;
         requestTimestamp?: string;
@@ -40,6 +40,25 @@ export interface RewardsProgramContent {
         entryId?: string;
         requestPath?: string;
         cookies?: Record<string, string>;
+        sdkState?: {
+            initStatus?: string;
+            variantParam?: string;
+            variantAliases?: string[];
+            requestHeaders?: Record<string, string>;
+            queryParams?: Record<string, any>;
+        };
+        contentInfo?: {
+            contentTypeUid?: string;
+            environment?: string;
+            hasVariants?: boolean;
+            availableFields?: string[];
+            rawResponse?: any;
+        };
+        timing?: {
+            fetchStart?: string;
+            fetchEnd?: string;
+            totalDuration?: number;
+        };
     };
 }
 
@@ -64,11 +83,37 @@ function getDefaultContent(): RewardsProgramContent {
 
 // Cached function to fetch rewards content from Contentstack
 export const getRewardsContent = cache(async (variantParam?: string, cookies?: Record<string, string>): Promise<RewardsProgramContent> => {
-    console.log(`[SERVER][getRewardsContent] Starting fetch with variantParam: ${variantParam || 'none'}`);
-    console.log(`[SERVER][getRewardsContent] Server time: ${new Date().toISOString()}`);
+    const fetchStartTime = Date.now();
+    console.log('\n=== REWARDS CONTENT FETCH START ===');
+    console.log(`🕒 [${new Date().toISOString()}] Starting fetch with variantParam: ${variantParam || 'none'}`);
 
+    // Enhanced SDK status logging
+    const sdkStatus = {
+        isPersonalizeAvailable: !!Personalize,
+        hasVariantParamMethod: !!Personalize.variantParamToVariantAliases,
+        hasGetInitializationStatus: !!Personalize.getInitializationStatus,
+        initStatus: Personalize.getInitializationStatus?.(),
+        sdkVersion: Personalize.version || 'unknown'
+    };
+    console.log('🔍 SDK Status:', sdkStatus);
+
+    // Enhanced cookie analysis
     if (cookies) {
-        console.log('[SERVER][getRewardsContent] Cookies received:', JSON.stringify(cookies, null, 2));
+        const cookieAnalysis = {
+            count: Object.keys(cookies).length,
+            names: Object.keys(cookies),
+            hasPersonalizeState: 'personalize_state' in cookies,
+            hasUserAttributes: 'user_attributes' in cookies,
+            personalizeState: cookies['personalize_state'] ? {
+                length: cookies['personalize_state'].length,
+                snippet: cookies['personalize_state'].substring(0, 50) + '...'
+            } : 'not found',
+            userAttributes: cookies['user_attributes'] ? {
+                length: cookies['user_attributes'].length,
+                snippet: cookies['user_attributes'].substring(0, 50) + '...'
+            } : 'not found'
+        };
+        console.log('🍪 Enhanced Cookie Analysis:', cookieAnalysis);
     }
 
     try {
@@ -82,9 +127,15 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
             throw Error('Required Contentstack environment variables are missing');
         }
 
-        console.log('[SERVER][getRewardsContent] Initializing Contentstack SDK');
+        console.log('🎯 Content Target:', {
+            contentTypeUid: 'rewards_program',
+            entryUid: 'blt5cd290c6b1bf0fc9',
+            environment: process.env.NEXT_PUBLIC_CONTENTSTACK_ENVIRONMENT,
+            host: process.env.CONTENTSTACK_DELIVERY_API_HOST || 'cdn.contentstack.io'
+        });
 
-        // Initialize the Contentstack SDK
+        // Initialize SDK with detailed logging
+        console.log('🚀 Initializing Contentstack SDK...');
         const stack = contentstack.stack({
             apiKey,
             deliveryToken,
@@ -92,134 +143,167 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
             host: process.env.CONTENTSTACK_DELIVERY_API_HOST || 'cdn.contentstack.io',
         });
 
-        // Define content type and entry ID
-        const contentTypeUid = 'rewards_program';
-        
-        console.log(`[SERVER][getRewardsContent] Fetching entries of type ${contentTypeUid}`);
+        // Create entry call with detailed logging
+        console.log('📝 Creating entry call...');
+        const entryCall = stack
+            .contentType('rewards_program')
+            .entry('blt5cd290c6b1bf0fc9');
 
-        // Create the base query
-        const query = stack.contentType(contentTypeUid).entry();
-
-        // Log the query configuration
-        console.log('[SERVER][getRewardsContent] Query configuration:', {
-            contentTypeUid,
-            apiKey: apiKey.substring(0, 5) + '...',
-            environment,
-            host: process.env.CONTENTSTACK_DELIVERY_API_HOST || 'cdn.contentstack.io'
-        });
-
-        // Fetch the entries with the specific variant if provided
-        let response: any;
+        // Enhanced variant processing
         let variantAliasUsed = '';
+        let variantAliases: string[] = [];
+        let variantDetails = {
+            original: variantParam,
+            decoded: variantParam ? decodeURIComponent(variantParam) : '',
+            processed: false,
+            error: null as Error | null,
+            aliases: [] as string[],
+            finalAlias: ''
+        };
 
-        try {
-            if (variantParam) {
-                // Convert the variant parameter to variant aliases
-                const variantAliases = Personalize.variantParamToVariantAliases(variantParam);
-                console.log(`[SERVER][getRewardsContent] Variant param "${variantParam}" converted to aliases:`, variantAliases);
+        if (variantParam) {
+            console.log('🔄 Processing variant:', {
+                original: variantParam,
+                decoded: decodeURIComponent(variantParam),
+                timestamp: new Date().toISOString()
+            });
+
+            try {
+                variantAliases = Personalize.variantParamToVariantAliases(variantParam);
+                variantDetails.processed = true;
+                variantDetails.aliases = variantAliases;
                 
                 if (variantAliases.length > 0) {
                     variantAliasUsed = variantAliases.join(',');
-                    console.log(`[SERVER][getRewardsContent] Using variant aliases: ${variantAliasUsed}`);
+                    variantDetails.finalAlias = variantAliasUsed;
                     
-                    // Add variant to the query
-                    query.addParams({ variants: variantAliasUsed });
-                    console.log('[SERVER][getRewardsContent] Added variant parameter to query');
+                    // Add variant to query with detailed logging
+                    console.log('✨ Adding variant to entry call:', {
+                        variantAliasUsed,
+                        aliasCount: variantAliases.length,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    entryCall.variants(variantAliasUsed);
                 } else {
-                    console.log('[SERVER][getRewardsContent] No valid variant aliases found for param:', variantParam);
+                    console.log('⚠️ No valid variant aliases generated for:', variantParam);
                 }
+            } catch (error) {
+                variantDetails.error = error as Error;
+                console.error('❌ Variant processing error:', {
+                    error,
+                    variantParam,
+                    stack: (error as Error).stack
+                });
             }
-
-            // Log the full query before execution
-            console.log('[SERVER][getRewardsContent] Full query details:', {
-                contentType: contentTypeUid,
-                environment,
-                variantParam,
-                variantAliasUsed
-            });
-
-            // Execute the query with detailed logging
-            console.log('[SERVER][getRewardsContent] Executing Contentstack query...');
-
-            // Log the request details
-            const requestUrl = `https://${process.env.CONTENTSTACK_DELIVERY_API_HOST || 'cdn.contentstack.io'}/v3/content_types/${contentTypeUid}/entries`;
-            const requestHeaders = {
-                api_key: apiKey,
-                access_token: deliveryToken,
-                environment,
-                ...(variantAliasUsed ? { 'x-cs-variant-uid': variantAliasUsed } : {})
-            };
-
-            console.log('[SERVER][getRewardsContent] Request details:', {
-                url: requestUrl,
-                headers: {
-                    ...requestHeaders,
-                    api_key: requestHeaders.api_key.substring(0, 5) + '...',
-                    access_token: requestHeaders.access_token.substring(0, 5) + '...'
-                }
-            });
-
-            // Make the query
-            response = await query.find();
-            console.log('[SERVER][getRewardsContent] Query executed successfully');
-            console.log('[SERVER][getRewardsContent] Response:', {
-                status: 'success',
-                hasEntries: !!response?.entries,
-                entryCount: response?.entries?.length || 0,
-                responseType: typeof response,
-                keys: response ? Object.keys(response) : []
-            });
-
-        } catch (error: any) {
-            console.error('[SERVER][getRewardsContent] Error executing query:', {
-                name: error?.name,
-                message: error?.message,
-                stack: error?.stack,
-                contentTypeUid,
-                variantParam,
-                variantAliasUsed,
-                apiKey: apiKey.substring(0, 5) + '...',
-                host: process.env.CONTENTSTACK_DELIVERY_API_HOST
-            });
-            throw error;
         }
 
-        console.log('[SERVER][getRewardsContent] Response received from Contentstack');
-        console.log('[SERVER][getRewardsContent] Response type:', typeof response);
+        // Log final query configuration
+        console.log('📤 Final query configuration:', {
+            contentTypeUid: 'rewards_program',
+            entryUid: 'blt5cd290c6b1bf0fc9',
+            variantDetails,
+            timestamp: new Date().toISOString()
+        });
 
-        // Check if response exists and has entries
-        if (!response || !response.entries || response.entries.length === 0) {
-            console.error('[SERVER][getRewardsContent] No entries found in Contentstack');
-            console.error('[SERVER][getRewardsContent] Response structure:', JSON.stringify(response, null, 2));
+        // Execute query with enhanced timing
+        const queryStartTime = Date.now();
+        console.log('🔄 Executing entry fetch...');
+        const response = await entryCall.fetch();
+        const queryEndTime = Date.now();
+
+        // Enhanced response analysis
+        const responseAnalysis = {
+            duration: `${queryEndTime - queryStartTime}ms`,
+            hasResponse: !!response,
+            responseType: typeof response,
+            isObject: response && typeof response === 'object',
+            keys: response ? Object.keys(response) : [],
+            variantUsed: variantAliasUsed || 'default',
+            timestamp: new Date().toISOString()
+        };
+        console.log('📥 Response Analysis:', responseAnalysis);
+
+        if (!response) {
+            console.error('❌ No entry found in response');
             return getDefaultContent();
         }
 
-        // Use the first entry
-        const entry = response.entries[0];
+        // Extract entry data
+        const entry = response as ContentstackEntry;
+        
+        // Log complete entry for variant
+        console.log('🔍 Complete entry for variant:', {
+            variant: variantAliasUsed || 'default',
+            entry: JSON.stringify(entry, null, 2)
+        });
 
-        // Additional logging for debugging
-        console.log('[SERVER][getRewardsContent] Response keys:', Object.keys(entry));
+        const entryAnalysis = {
+            title: entry.title,
+            hasDescription: !!entry.description,
+            hasTierInfo: !!entry.tier_info,
+            hasPromotionalMessage: !!entry.promotional_message,
+            allFields: Object.keys(entry)
+        };
+        console.log('📋 Entry Analysis:', entryAnalysis);
 
         // Extract title and other properties safely with type checking
         const title = entry.title || 'Rewards Program';
         const description = entry.description || 'Join our rewards program today!';
+
+        // Enhanced tier info processing with raw data logging
+        console.log('👑 Raw tier info data:', {
+            tier_info: entry.tier_info,
+            type: typeof entry.tier_info,
+            structure: entry.tier_info ? JSON.stringify(entry.tier_info, null, 2) : 'undefined',
+            allTierFields: entry.tier_info ? Object.keys(entry.tier_info) : []
+        });
+
+        // Enhanced benefits processing with raw data logging
+        console.log('🎁 Raw benefits data:', {
+            benefits: entry.benefits,
+            type: typeof entry.benefits,
+            isArray: Array.isArray(entry.benefits),
+            structure: entry.benefits ? JSON.stringify(entry.benefits, null, 2) : 'undefined'
+        });
+
+        // Simple benefits processing with additional checks
         const benefits = Array.isArray(entry.benefits) 
-            ? entry.benefits.map((benefit: any) => {
-                // Handle block structure from Contentstack
+            ? entry.benefits.map((benefit: any, index: number) => {
+                console.log(`Processing benefit ${index}:`, benefit);
+                
                 if (benefit && typeof benefit === 'object') {
-                    if ('text' in benefit) return benefit.text;
+                    // Check for modular blocks structure
+                    if (benefit.benefit_text) {
+                        console.log(`Found benefit_text in benefit ${index}:`, benefit.benefit_text);
+                        return benefit.benefit_text;
+                    }
+                    if ('text' in benefit) {
+                        console.log(`Found text in benefit ${index}:`, benefit.text);
+                        return benefit.text;
+                    }
                     if ('benefit' in benefit && typeof benefit.benefit === 'object' && 'text' in benefit.benefit) {
+                        console.log(`Found nested text in benefit ${index}:`, benefit.benefit.text);
                         return benefit.benefit.text;
                     }
+                    // Log unknown object structure
+                    console.log(`Unknown benefit object structure ${index}:`, benefit);
                 }
-                if (typeof benefit === 'string') return benefit;
+                if (typeof benefit === 'string') {
+                    console.log(`Found string benefit ${index}:`, benefit);
+                    return benefit;
+                }
+                console.log(`Could not process benefit ${index}:`, benefit);
                 return null;
-              }).filter((benefit: string | null): benefit is string => typeof benefit === 'string')
+            }).filter((benefit: string | null): benefit is string => typeof benefit === 'string')
             : [];
 
-        // Add debug logging for benefits
-        console.log('[SERVER][getRewardsContent] Raw benefits:', entry.benefits);
-        console.log('[SERVER][getRewardsContent] Processed benefits:', benefits);
+        // Log final benefits result
+        console.log('Final benefits result:', {
+            count: benefits.length,
+            benefits: benefits,
+            variant: variantAliasUsed || 'default'
+        });
 
         const cta_text = entry.cta_text || 'Join Now';
 
@@ -245,13 +329,14 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
 
         // Add optional fields if they exist
         if (entry.tier_info) {
-            console.log('[SERVER][getRewardsContent] Adding tier info:', entry.tier_info);
+            console.log('[SERVER][getRewardsContent] Processing tier info:', entry.tier_info);
             mappedContent.tierInfo = {
                 currentTier: entry.tier_info.current_tier || '',
                 pointsBalance: typeof entry.tier_info.points_balance === 'number' ? entry.tier_info.points_balance : 0,
                 nextTier: entry.tier_info.next_tier || '',
                 pointsToNextTier: typeof entry.tier_info.points_to_next_tier === 'number' ? entry.tier_info.points_to_next_tier : 0
             };
+            console.log('[SERVER][getRewardsContent] Mapped tier info:', mappedContent.tierInfo);
         }
 
         if (entry.promotional_message) {
@@ -260,10 +345,77 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
         }
 
         console.log(`[SERVER][getRewardsContent] Successfully mapped content with title: "${mappedContent.title}"`);
+
+        // Enhanced debug info in mapped content
+        mappedContent.debugInfo = {
+            ...mappedContent.debugInfo,
+            sdkState: {
+                initStatus: Personalize.getInitializationStatus?.(),
+                variantParam,
+                variantAliases,
+                requestHeaders: {
+                    'x-cs-variant-uid': variantAliasUsed,
+                    environment: process.env.NEXT_PUBLIC_CONTENTSTACK_ENVIRONMENT || ''
+                },
+                queryParams: {}
+            },
+            contentInfo: {
+                contentTypeUid: 'rewards_program',
+                environment: process.env.NEXT_PUBLIC_CONTENTSTACK_ENVIRONMENT,
+                hasVariants: variantAliases.length > 0,
+                availableFields: response ? Object.keys(response) : [],
+                rawResponse: response
+            },
+            timing: {
+                fetchStart: new Date(fetchStartTime).toISOString(),
+                fetchEnd: new Date().toISOString(),
+                totalDuration: Date.now() - fetchStartTime
+            }
+        };
+
+        // Enhanced completion logging
+        console.log('✅ Content mapping completed:', {
+            title: mappedContent.title,
+            benefitsCount: mappedContent.benefits.length,
+            hasTierInfo: !!mappedContent.tierInfo,
+            hasPromotionalMessage: !!mappedContent.promotionalMessage,
+            duration: `${Date.now() - fetchStartTime}ms`,
+            variantUsed: variantAliasUsed || 'default'
+        });
+
+        console.log('=== REWARDS CONTENT FETCH END ===\n');
         return mappedContent;
 
     } catch (error) {
-        console.error('[SERVER][getRewardsContent] Error fetching rewards content:', error);
-        return getDefaultContent();
+        // Enhanced error logging
+        const errorAnalysis = {
+            error,
+            type: error instanceof Error ? 'Error' : typeof error,
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+            variantParam,
+            timestamp: new Date().toISOString(),
+            duration: `${Date.now() - fetchStartTime}ms`
+        };
+        console.error('❌ Enhanced Error Analysis:', errorAnalysis);
+        
+        const fallbackContent = getDefaultContent();
+        fallbackContent.debugInfo = {
+            ...fallbackContent.debugInfo,
+            sdkState: {
+                initStatus: Personalize.getInitializationStatus?.(),
+                variantParam,
+                variantAliases: [],
+                requestHeaders: {},
+                queryParams: {}
+            },
+            timing: {
+                fetchStart: new Date(fetchStartTime).toISOString(),
+                fetchEnd: new Date().toISOString(),
+                totalDuration: Date.now() - fetchStartTime
+            }
+        };
+        
+        return fallbackContent;
     }
 });
