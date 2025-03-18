@@ -37,3 +37,7 @@ next-env.d.ts
 
 .npmrc
 .env
+.idea/modules.xml
+.idea/nextjs-example.iml
+.idea/vcs.xml
+.idea/inspectionProfiles/Project_Default.xml
