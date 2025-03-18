@@ -1,0 +1,171 @@
+{
+  "content_type": {
+    "title": "Rewards Program",
+    "uid": "rewards_program",
+    "options": {
+      "title": "title",
+      "publishable": true,
+      "is_page": true,
+      "url_pattern": "/:title",
+      "singleton": false
+    },
+    "schema": [
+      {
+        "display_name": "Title",
+        "uid": "title",
+        "data_type": "text",
+        "mandatory": true,
+        "unique": false,
+        "field_metadata": {
+          "description": "The title of the rewards program variant"
+        }
+      },
+      {
+        "display_name": "Description",
+        "uid": "description",
+        "data_type": "text",
+        "multiple": false,
+        "mandatory": false,
+        "field_metadata": {
+          "description": "Main description of the rewards program",
+          "multiline": true
+        }
+      },
+      {
+        "display_name": "Benefits",
+        "uid": "benefits",
+        "data_type": "blocks",
+        "multiple": true,
+        "blocks": [
+          {
+            "title": "Benefit",
+            "uid": "benefit",
+            "schema": [
+              {
+                "data_type": "text",
+                "display_name": "Benefit Text",
+                "uid": "text",
+                "mandatory": false,
+                "field_metadata": {
+                  "description": "Text describing the benefit"
+                }
+              },
+              {
+                "data_type": "text",
+                "display_name": "Icon",
+                "uid": "icon",
+                "mandatory": false,
+                "field_metadata": {
+                  "description": "Icon name to display with this benefit"
+                }
+              }
+            ]
+          }
+        ],
+        "mandatory": false,
+        "field_metadata": {
+          "description": "Benefits of the rewards program"
+        }
+      },
+      {
+        "display_name": "CTA Text",
+        "uid": "cta_text",
+        "data_type": "text",
+        "mandatory": true,
+        "multiple": false,
+        "field_metadata": {
+          "description": "Call to action button text"
+        }
+      },
+      {
+        "display_name": "CTA Link",
+        "uid": "cta_link",
+        "data_type": "text",
+        "mandatory": false,
+        "multiple": false,
+        "field_metadata": {
+          "description": "Link for the call to action button"
+        }
+      },
+      {
+        "display_name": "Tier Information",
+        "uid": "tier_info",
+        "data_type": "group",
+        "multiple": false,
+        "mandatory": false,
+        "schema": [
+          {
+            "data_type": "text",
+            "display_name": "Current Tier",
+            "uid": "current_tier",
+            "mandatory": false,
+            "multiple": false
+          },
+          {
+            "data_type": "number",
+            "display_name": "Points Balance",
+            "uid": "points_balance",
+            "mandatory": false,
+            "multiple": false
+          },
+          {
+            "data_type": "text",
+            "display_name": "Next Tier",
+            "uid": "next_tier",
+            "mandatory": false,
+            "multiple": false
+          },
+          {
+            "data_type": "number",
+            "display_name": "Points To Next Tier",
+            "uid": "points_to_next_tier",
+            "mandatory": false,
+            "multiple": false
+          }
+        ],
+        "field_metadata": {
+          "description": "Information about the member's tier status"
+        }
+      },
+      {
+        "display_name": "Promotional Message",
+        "uid": "promotional_message",
+        "data_type": "text",
+        "mandatory": false,
+        "multiple": false,
+        "field_metadata": {
+          "description": "Special promotional message to display (if applicable)",
+          "multiline": true
+        }
+      },
+      {
+        "display_name": "Variant Type",
+        "uid": "variant_type",
+        "data_type": "select",
+        "mandatory": true,
+        "multiple": false,
+        "choices": [
+          {
+            "value": "default",
+            "label": "Non-Member View"
+          },
+          {
+            "value": "member",
+            "label": "Basic Member View"
+          },
+          {
+            "value": "premium",
+            "label": "Premium Member View"
+          },
+          {
+            "value": "promotion",
+            "label": "Promotional View"
+          }
+        ],
+        "field_metadata": {
+          "description": "Type of variant this content represents"
+        }
+      }
+    ]
+  }
+}
