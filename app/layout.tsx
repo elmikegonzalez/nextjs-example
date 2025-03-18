@@ -1,32 +1,26 @@
 import './globals.css';
-
 import type { Metadata } from 'next';
-import { getServerSession } from 'next-auth';
 import { Inter } from 'next/font/google';
+import Providers from './providers';
 
-import { PersonalizeProvider } from '@/components/context/PersonalizeContext';
-import SessionProvider from '@/components/providers/SessionProvider';
-
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: "Personalize Demo",
-  description: "Powered by Personalize",
+  title: 'Next.js Example',
+  description: 'A Next.js example application with authentication and personalization',
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession();
-
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <body className={inter.className}>
-        <PersonalizeProvider>
-          <SessionProvider session={session}>{children}</SessionProvider>
-        </PersonalizeProvider>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );

@@ -4,6 +4,20 @@ import contentstack from '@contentstack/delivery-sdk';
 import Personalize from '@contentstack/personalize-edge-sdk';
 import axios, { AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
 
+// Debug flag - can be enabled via environment variable
+const isDebugMode = () => process.env.NEXT_PUBLIC_REWARDS_DEBUG === 'true';
+
+// Helper function for debug logging
+const debugLog = (message: string, data?: any) => {
+    if (isDebugMode()) {
+        if (data) {
+            console.log(message, data);
+        } else {
+            console.log(message);
+        }
+    }
+};
+
 // Define types for the Contentstack response
 interface ContentstackEntry {
     title: string;
@@ -84,8 +98,8 @@ function getDefaultContent(): RewardsProgramContent {
 // Cached function to fetch rewards content from Contentstack
 export const getRewardsContent = cache(async (variantParam?: string, cookies?: Record<string, string>): Promise<RewardsProgramContent> => {
     const fetchStartTime = Date.now();
-    console.log('\n=== REWARDS CONTENT FETCH START ===');
-    console.log(`🕒 [${new Date().toISOString()}] Starting fetch with variantParam: ${variantParam || 'none'}`);
+    debugLog('\n=== REWARDS CONTENT FETCH START ===');
+    debugLog(`🕒 [${new Date().toISOString()}] Starting fetch with variantParam: ${variantParam || 'none'}`);
 
     // Enhanced SDK status logging
     const sdkStatus = {
@@ -93,12 +107,12 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
         hasVariantParamMethod: !!Personalize.variantParamToVariantAliases,
         hasGetInitializationStatus: !!Personalize.getInitializationStatus,
         initStatus: Personalize.getInitializationStatus?.(),
-        sdkVersion: Personalize.version || 'unknown'
+        sdkVersion: 'unknown'
     };
-    console.log('🔍 SDK Status:', sdkStatus);
+    debugLog('🔍 SDK Status:', sdkStatus);
 
     // Enhanced cookie analysis
-    if (cookies) {
+    if (cookies && isDebugMode()) {
         const cookieAnalysis = {
             count: Object.keys(cookies).length,
             names: Object.keys(cookies),
@@ -113,7 +127,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
                 snippet: cookies['user_attributes'].substring(0, 50) + '...'
             } : 'not found'
         };
-        console.log('🍪 Enhanced Cookie Analysis:', cookieAnalysis);
+        debugLog('🍪 Enhanced Cookie Analysis:', cookieAnalysis);
     }
 
     try {
@@ -127,7 +141,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
             throw Error('Required Contentstack environment variables are missing');
         }
 
-        console.log('🎯 Content Target:', {
+        debugLog('🎯 Content Target:', {
             contentTypeUid: 'rewards_program',
             entryUid: 'blt5cd290c6b1bf0fc9',
             environment: process.env.NEXT_PUBLIC_CONTENTSTACK_ENVIRONMENT,
@@ -135,7 +149,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
         });
 
         // Initialize SDK with detailed logging
-        console.log('🚀 Initializing Contentstack SDK...');
+        debugLog('🚀 Initializing Contentstack SDK...');
         const stack = contentstack.stack({
             apiKey,
             deliveryToken,
@@ -144,7 +158,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
         });
 
         // Create entry call with detailed logging
-        console.log('📝 Creating entry call...');
+        debugLog('📝 Creating entry call...');
         const entryCall = stack
             .contentType('rewards_program')
             .entry('blt5cd290c6b1bf0fc9');
@@ -162,7 +176,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
         };
 
         if (variantParam) {
-            console.log('🔄 Processing variant:', {
+            debugLog('�� Processing variant:', {
                 original: variantParam,
                 decoded: decodeURIComponent(variantParam),
                 timestamp: new Date().toISOString()
@@ -178,7 +192,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
                     variantDetails.finalAlias = variantAliasUsed;
                     
                     // Add variant to query with detailed logging
-                    console.log('✨ Adding variant to entry call:', {
+                    debugLog('✨ Adding variant to entry call:', {
                         variantAliasUsed,
                         aliasCount: variantAliases.length,
                         timestamp: new Date().toISOString()
@@ -186,11 +200,11 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
                     
                     entryCall.variants(variantAliasUsed);
                 } else {
-                    console.log('⚠️ No valid variant aliases generated for:', variantParam);
+                    debugLog('⚠️ No valid variant aliases generated for:', variantParam);
                 }
             } catch (error) {
                 variantDetails.error = error as Error;
-                console.error('❌ Variant processing error:', {
+                debugLog('❌ Variant processing error:', {
                     error,
                     variantParam,
                     stack: (error as Error).stack
@@ -199,7 +213,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
         }
 
         // Log final query configuration
-        console.log('📤 Final query configuration:', {
+        debugLog('📤 Final query configuration:', {
             contentTypeUid: 'rewards_program',
             entryUid: 'blt5cd290c6b1bf0fc9',
             variantDetails,
@@ -208,7 +222,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
 
         // Execute query with enhanced timing
         const queryStartTime = Date.now();
-        console.log('🔄 Executing entry fetch...');
+        debugLog('🔄 Executing entry fetch...');
         const response = await entryCall.fetch();
         const queryEndTime = Date.now();
 
@@ -222,10 +236,10 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
             variantUsed: variantAliasUsed || 'default',
             timestamp: new Date().toISOString()
         };
-        console.log('📥 Response Analysis:', responseAnalysis);
+        debugLog('📥 Response Analysis:', responseAnalysis);
 
         if (!response) {
-            console.error('❌ No entry found in response');
+            debugLog('❌ No entry found in response');
             return getDefaultContent();
         }
 
@@ -233,7 +247,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
         const entry = response as ContentstackEntry;
         
         // Log complete entry for variant
-        console.log('🔍 Complete entry for variant:', {
+        debugLog('🔍 Complete entry for variant:', {
             variant: variantAliasUsed || 'default',
             entry: JSON.stringify(entry, null, 2)
         });
@@ -245,14 +259,14 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
             hasPromotionalMessage: !!entry.promotional_message,
             allFields: Object.keys(entry)
         };
-        console.log('📋 Entry Analysis:', entryAnalysis);
+        debugLog('📋 Entry Analysis:', entryAnalysis);
 
         // Extract title and other properties safely with type checking
         const title = entry.title || 'Rewards Program';
         const description = entry.description || 'Join our rewards program today!';
 
         // Enhanced tier info processing with raw data logging
-        console.log('👑 Raw tier info data:', {
+        debugLog('👑 Raw tier info data:', {
             tier_info: entry.tier_info,
             type: typeof entry.tier_info,
             structure: entry.tier_info ? JSON.stringify(entry.tier_info, null, 2) : 'undefined',
@@ -260,7 +274,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
         });
 
         // Enhanced benefits processing with raw data logging
-        console.log('🎁 Raw benefits data:', {
+        debugLog('🎁 Raw benefits data:', {
             benefits: entry.benefits,
             type: typeof entry.benefits,
             isArray: Array.isArray(entry.benefits),
@@ -270,36 +284,36 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
         // Simple benefits processing with additional checks
         const benefits = Array.isArray(entry.benefits) 
             ? entry.benefits.map((benefit: any, index: number) => {
-                console.log(`Processing benefit ${index}:`, benefit);
+                debugLog(`Processing benefit ${index}:`, benefit);
                 
                 if (benefit && typeof benefit === 'object') {
                     // Check for modular blocks structure
                     if (benefit.benefit_text) {
-                        console.log(`Found benefit_text in benefit ${index}:`, benefit.benefit_text);
+                        debugLog(`Found benefit_text in benefit ${index}:`, benefit.benefit_text);
                         return benefit.benefit_text;
                     }
                     if ('text' in benefit) {
-                        console.log(`Found text in benefit ${index}:`, benefit.text);
+                        debugLog(`Found text in benefit ${index}:`, benefit.text);
                         return benefit.text;
                     }
                     if ('benefit' in benefit && typeof benefit.benefit === 'object' && 'text' in benefit.benefit) {
-                        console.log(`Found nested text in benefit ${index}:`, benefit.benefit.text);
+                        debugLog(`Found nested text in benefit ${index}:`, benefit.benefit.text);
                         return benefit.benefit.text;
                     }
                     // Log unknown object structure
-                    console.log(`Unknown benefit object structure ${index}:`, benefit);
+                    debugLog(`Unknown benefit object structure ${index}:`, benefit);
                 }
                 if (typeof benefit === 'string') {
-                    console.log(`Found string benefit ${index}:`, benefit);
+                    debugLog(`Found string benefit ${index}:`, benefit);
                     return benefit;
                 }
-                console.log(`Could not process benefit ${index}:`, benefit);
+                debugLog(`Could not process benefit ${index}:`, benefit);
                 return null;
             }).filter((benefit: string | null): benefit is string => typeof benefit === 'string')
             : [];
 
         // Log final benefits result
-        console.log('Final benefits result:', {
+        debugLog('Final benefits result:', {
             count: benefits.length,
             benefits: benefits,
             variant: variantAliasUsed || 'default'
@@ -307,9 +321,9 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
 
         const cta_text = entry.cta_text || 'Join Now';
 
-        console.log(`[SERVER][getRewardsContent] Extracted title: "${title}"`);
-        console.log(`[SERVER][getRewardsContent] Has tier_info:`, !!entry.tier_info);
-        console.log(`[SERVER][getRewardsContent] Benefits:`, benefits);
+        debugLog(`[SERVER][getRewardsContent] Extracted title: "${title}"`);
+        debugLog(`[SERVER][getRewardsContent] Has tier_info:`, !!entry.tier_info);
+        debugLog(`[SERVER][getRewardsContent] Benefits:`, benefits);
 
         // Map the Contentstack entry to our application's content model
         const mappedContent: RewardsProgramContent = {
@@ -329,22 +343,22 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
 
         // Add optional fields if they exist
         if (entry.tier_info) {
-            console.log('[SERVER][getRewardsContent] Processing tier info:', entry.tier_info);
+            debugLog('[SERVER][getRewardsContent] Processing tier info:', entry.tier_info);
             mappedContent.tierInfo = {
                 currentTier: entry.tier_info.current_tier || '',
                 pointsBalance: typeof entry.tier_info.points_balance === 'number' ? entry.tier_info.points_balance : 0,
                 nextTier: entry.tier_info.next_tier || '',
                 pointsToNextTier: typeof entry.tier_info.points_to_next_tier === 'number' ? entry.tier_info.points_to_next_tier : 0
             };
-            console.log('[SERVER][getRewardsContent] Mapped tier info:', mappedContent.tierInfo);
+            debugLog('[SERVER][getRewardsContent] Mapped tier info:', mappedContent.tierInfo);
         }
 
         if (entry.promotional_message) {
-            console.log('[SERVER][getRewardsContent] Adding promotional message:', entry.promotional_message);
+            debugLog('[SERVER][getRewardsContent] Adding promotional message:', entry.promotional_message);
             mappedContent.promotionalMessage = entry.promotional_message;
         }
 
-        console.log(`[SERVER][getRewardsContent] Successfully mapped content with title: "${mappedContent.title}"`);
+        debugLog(`[SERVER][getRewardsContent] Successfully mapped content with title: "${mappedContent.title}"`);
 
         // Enhanced debug info in mapped content
         mappedContent.debugInfo = {
@@ -374,7 +388,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
         };
 
         // Enhanced completion logging
-        console.log('✅ Content mapping completed:', {
+        debugLog('✅ Content mapping completed:', {
             title: mappedContent.title,
             benefitsCount: mappedContent.benefits.length,
             hasTierInfo: !!mappedContent.tierInfo,
@@ -383,7 +397,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
             variantUsed: variantAliasUsed || 'default'
         });
 
-        console.log('=== REWARDS CONTENT FETCH END ===\n');
+        debugLog('=== REWARDS CONTENT FETCH END ===\n');
         return mappedContent;
 
     } catch (error) {
@@ -397,7 +411,7 @@ export const getRewardsContent = cache(async (variantParam?: string, cookies?: R
             timestamp: new Date().toISOString(),
             duration: `${Date.now() - fetchStartTime}ms`
         };
-        console.error('❌ Enhanced Error Analysis:', errorAnalysis);
+        debugLog('❌ Enhanced Error Analysis:', errorAnalysis);
         
         const fallbackContent = getDefaultContent();
         fallbackContent.debugInfo = {

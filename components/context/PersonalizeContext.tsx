@@ -10,6 +10,8 @@ import {
 
 import Personalize from '@contentstack/personalize-edge-sdk';
 import { Sdk } from '@contentstack/personalize-edge-sdk/dist/sdk';
+import debugLogger from '../../app/utils/debug-logger';
+import { useSession } from 'next-auth/react';
 
 let sdkInstance: Sdk | null = null;
 
@@ -19,6 +21,7 @@ interface PersonalizeContextType {
     isInitialized: boolean;
     isInitializing: boolean;
     error: Error | null;
+    resetState: () => Promise<void>;
 }
 
 // Default context value
@@ -26,7 +29,8 @@ const defaultContextValue: PersonalizeContextType = {
     sdk: null,
     isInitialized: false,
     isInitializing: false,
-    error: null
+    error: null,
+    resetState: async () => {}
 };
 
 // Create context with proper typing
@@ -37,45 +41,68 @@ interface PersonalizeProviderProps {
     children: ReactNode;
 }
 
+// Helper function to generate a unique user ID
+const generateUserId = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+};
+
+// Helper function to set a cookie
+const setCookie = (name: string, value: string, days = 30) => {
+    const date = new Date();
+    date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+    const expires = `expires=${date.toUTCString()}`;
+    document.cookie = `${name}=${value};${expires};path=/`;
+};
+
 export async function getPersonalizeInstance() {
     try {
         // If we already have a valid instance, return it
         if (sdkInstance && Personalize.getInitializationStatus()) {
-            console.log("[getPersonalizeInstance] Returning existing SDK instance");
+            debugLogger.debug('Returning existing SDK instance');
             return sdkInstance;
         }
 
-        // Check for required cookies
+        const projectUid = process.env.NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_PROJECT_UID;
+        if (!projectUid) {
+            debugLogger.error('Missing NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_PROJECT_UID environment variable');
+            return null;
+        }
+
+        // Set Edge API URL if provided
+        const edgeApiUrl = process.env.NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_EDGE_API_URL || 'https://edge-api.contentstack.com';
+        debugLogger.debug('Setting Edge API URL:', edgeApiUrl);
+        Personalize.setEdgeApiUrl(edgeApiUrl);
+
+        // Initialize required cookies if they don't exist
         const cookies = document.cookie.split(';').reduce((acc, cookie) => {
             const [key, value] = cookie.trim().split('=');
             acc[key] = value;
             return acc;
         }, {} as Record<string, string>);
 
-        const requiredCookies = [
-            'cs-personalize-user-uid',
-            'cs-personalize-manifest'
-        ];
-
-        const missingCookies = requiredCookies.filter(cookie => !cookies[cookie]);
-        if (missingCookies.length > 0) {
-            console.error("[getPersonalizeInstance] Missing required cookies:", missingCookies);
-            return null;
+        // Initialize user UID if not present
+        if (!cookies['cs-personalize-user-uid']) {
+            const userId = generateUserId();
+            setCookie('cs-personalize-user-uid', userId);
+            cookies['cs-personalize-user-uid'] = userId;
         }
 
-        const projectUid = process.env.NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_PROJECT_UID;
-        if (!projectUid) {
-            console.error("[getPersonalizeInstance] Missing NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_PROJECT_UID environment variable");
-            return null;
+        // Initialize manifest if not present
+        if (!cookies['cs-personalize-manifest']) {
+            const defaultManifest = JSON.stringify({
+                activeVariants: {},
+                experiences: {}
+            });
+            setCookie('cs-personalize-manifest', defaultManifest);
+            cookies['cs-personalize-manifest'] = defaultManifest;
         }
-
-        // Set Edge API URL if provided
-        const edgeApiUrl = process.env.NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_EDGE_API_URL || 'https://edge-api.contentstack.com';
-        console.log("[getPersonalizeInstance] Setting Edge API URL:", edgeApiUrl);
-        Personalize.setEdgeApiUrl(edgeApiUrl);
 
         // Log configuration before initialization
-        console.log("[getPersonalizeInstance] SDK Configuration:", {
+        debugLogger.debug('SDK Configuration:', {
             projectUid,
             edgeApiUrl,
             environment: process.env.NODE_ENV,
@@ -87,19 +114,19 @@ export async function getPersonalizeInstance() {
 
         // Only clear existing instance if it's in an invalid state
         if (sdkInstance && !Personalize.getInitializationStatus()) {
-            console.log("[getPersonalizeInstance] Clearing invalid SDK instance");
+            debugLogger.debug('Clearing invalid SDK instance');
             sdkInstance = null;
         }
 
         // Initialize only if we don't have a valid instance
         if (!sdkInstance) {
-            console.log("[getPersonalizeInstance] Initializing SDK with project UID:", projectUid);
+            debugLogger.debug('Initializing SDK with project UID:', projectUid);
             try {
                 sdkInstance = await Personalize.init(projectUid);
-                console.log("[getPersonalizeInstance] Successfully initialized Personalize SDK");
+                debugLogger.success('Successfully initialized Personalize SDK');
             } catch (initError: unknown) {
                 const error = initError as Error;
-                console.error("[getPersonalizeInstance] Detailed init error:", {
+                debugLogger.error('Detailed init error:', {
                     message: error?.message || 'Unknown error',
                     name: error?.name,
                     stack: error?.stack,
@@ -112,7 +139,7 @@ export async function getPersonalizeInstance() {
         return sdkInstance;
     } catch (error: unknown) {
         const err = error as Error;
-        console.error("[getPersonalizeInstance] Error initializing Personalize SDK:", {
+        debugLogger.error('Error initializing Personalize SDK:', {
             message: err?.message || 'Unknown error',
             name: err?.name,
             stack: err?.stack
@@ -122,15 +149,53 @@ export async function getPersonalizeInstance() {
 }
 
 export function PersonalizeProvider({ children }: PersonalizeProviderProps) {
+    const { data: session, status } = useSession();
     const [context, setContext] = useState<PersonalizeContextType>(defaultContextValue);
     const [retryCount, setRetryCount] = useState(0);
     const MAX_RETRIES = 3;
     const initializationInProgress = useRef(false);
 
+    // Function to reset SDK state
+    const resetState = async () => {
+        debugLogger.group('SDK State Reset', () => {
+            debugLogger.info('Resetting SDK state');
+        });
+
+        try {
+            // Clear cookies first
+            const cookiesToClear = [
+                'cs-personalize-user-uid',
+                'cs-personalize-manifest',
+                'personalize_state',
+                'user_attributes',
+                'isSubscribed'
+            ];
+
+            cookiesToClear.forEach(name => {
+                document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+            });
+
+            // Reset context state
+            setContext(defaultContextValue);
+            sdkInstance = null;
+            setRetryCount(0);
+
+            debugLogger.success('Successfully reset SDK state');
+        } catch (error) {
+            debugLogger.error('Error resetting SDK state:', error);
+        }
+    };
+
     useEffect(() => {
         const initializeSDK = async () => {
-            // Skip if already initializing or initialized
-            if (initializationInProgress.current || (context.isInitialized && context.sdk)) {
+            // Skip initialization if we're on the signout page
+            if (window.location.pathname === '/api/auth/signout') {
+                return;
+            }
+
+            // Only skip initialization if we're actively resetting
+            if (initializationInProgress.current || 
+                (context.isInitialized && context.sdk)) {
                 return;
             }
 
@@ -139,48 +204,49 @@ export function PersonalizeProvider({ children }: PersonalizeProviderProps) {
             setContext(prev => ({ ...prev, isInitializing: true }));
 
             try {
-                console.log("[PersonalizeProvider] Starting SDK initialization (attempt " + (retryCount + 1) + ")");
-                
-                // Get cookies for debugging
-                const cookies = document.cookie.split(';').reduce((acc, cookie) => {
-                    const [key, value] = cookie.trim().split('=');
-                    acc[key] = value;
-                    return acc;
-                }, {} as Record<string, string>);
-                
-                console.log("[PersonalizeProvider] Current cookies:", cookies);
+                debugLogger.group('SDK Initialization', () => {
+                    debugLogger.info('Starting SDK initialization (attempt ' + (retryCount + 1) + ')');
+                    
+                    // Get cookies for debugging
+                    const cookies = document.cookie.split(';').reduce((acc, cookie) => {
+                        const [key, value] = cookie.trim().split('=');
+                        acc[key] = value;
+                        return acc;
+                    }, {} as Record<string, string>);
+                    
+                    debugLogger.debug('Current cookies:', cookies);
+                });
 
                 const instance = await getPersonalizeInstance();
 
                 if (instance) {
-                    console.log("[PersonalizeProvider] SDK initialized successfully");
+                    debugLogger.success('SDK initialized successfully');
                     
-                    // Verify the instance is working
-                    const testResult = await instance.triggerEvent('sdk-init-test').catch(e => {
-                        console.error("[PersonalizeProvider] Test event failed:", e);
-                        return null;
+                    setContext({
+                        sdk: instance,
+                        isInitialized: true,
+                        isInitializing: false,
+                        error: null,
+                        resetState
                     });
+                    setRetryCount(0);
 
-                    if (testResult !== null) {
-                        setContext({
-                            sdk: instance,
-                            isInitialized: true,
-                            isInitializing: false,
-                            error: null
-                        });
-                        setRetryCount(0); // Reset retry count on success
-                    } else {
-                        throw new Error("SDK test event failed");
+                    // Force a refresh if we're on post-authentication page
+                    if (window.location.pathname === '/post-authentication') {
+                        debugLogger.info('Post-authentication detected, forcing refresh');
+                        window.location.href = '/';
                     }
                 } else {
                     throw new Error("Failed to initialize Personalize SDK");
                 }
             } catch (error) {
-                console.error("[PersonalizeProvider] Initialization error:", error);
+                debugLogger.error('Initialization error:', error);
                 
-                // If we haven't exceeded max retries, schedule another attempt
-                if (retryCount < MAX_RETRIES) {
-                    console.log("[PersonalizeProvider] Scheduling retry in 1 second...");
+                // If we haven't exceeded max retries and we're not on an auth page, retry
+                if (retryCount < MAX_RETRIES && 
+                    !window.location.pathname.includes('/api/auth/') && 
+                    !window.location.pathname.includes('/post-authentication')) {
+                    debugLogger.info('Scheduling retry in 1 second...');
                     setRetryCount(prev => prev + 1);
                     setContext(prev => ({ ...prev, isInitializing: false }));
                     setTimeout(() => {
@@ -188,12 +254,13 @@ export function PersonalizeProvider({ children }: PersonalizeProviderProps) {
                         setContext(prev => ({ ...prev, isInitialized: false }));
                     }, 1000);
                 } else {
-                    console.error("[PersonalizeProvider] Max retries exceeded");
+                    debugLogger.error('Max retries exceeded or on auth page');
                     setContext({
                         sdk: null,
                         isInitialized: false,
                         isInitializing: false,
-                        error: error instanceof Error ? error : new Error(String(error))
+                        error: error instanceof Error ? error : new Error(String(error)),
+                        resetState
                     });
                 }
             } finally {

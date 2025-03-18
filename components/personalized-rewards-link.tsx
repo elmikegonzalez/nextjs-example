@@ -3,229 +3,137 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { usePersonalize } from '@/components/context/PersonalizeContext';
+import { usePersonalize } from './context/PersonalizeContext';
+import debugLogger from '../app/utils/debug-logger';
 
-// Helper function to safely get attributes from the SDK
-function getPersonalizeAttribute(sdk: any, attributeName: string, defaultValue: any = null) {
-    if (!sdk) {
-        console.log(`[getPersonalizeAttribute] SDK is null or undefined, returning default: ${defaultValue}`);
-        return defaultValue;
-    }
-
-    console.log(`[getPersonalizeAttribute] Attempting to get attribute: ${attributeName}`);
-
-    try {
-        // Log available methods on the SDK to help debug
-        console.log('[getPersonalizeAttribute] Available SDK methods:',
-            Object.keys(sdk)
-                .filter(key => typeof sdk[key] === 'function')
-                .join(', ')
-        );
-
-        // Try getUserAttributes if it exists (common pattern)
-        if (typeof sdk.getUserAttributes === 'function') {
-            try {
-                console.log('[getPersonalizeAttribute] Trying sdk.getUserAttributes()');
-                const attrs = sdk.getUserAttributes();
-                console.log('[getPersonalizeAttribute] getUserAttributes result:', attrs);
-                if (attrs && attrs[attributeName] !== undefined) {
-                    console.log(`[getPersonalizeAttribute] Found attribute using getUserAttributes: ${attributeName}=${attrs[attributeName]}`);
-                    return attrs[attributeName];
-                }
-            } catch (e:any) {
-                console.log(`[getPersonalizeAttribute] getUserAttributes failed: ${e.message}`);
-            }
-        }
-
-        // Try user.attributes if it exists
-        if (sdk.user && sdk.user.attributes) {
-            console.log('[getPersonalizeAttribute] Trying sdk.user.attributes');
-            console.log('[getPersonalizeAttribute] user.attributes:', sdk.user.attributes);
-            if (sdk.user.attributes[attributeName] !== undefined) {
-                console.log(`[getPersonalizeAttribute] Found attribute in user.attributes: ${attributeName}=${sdk.user.attributes[attributeName]}`);
-                return sdk.user.attributes[attributeName];
-            }
-        }
-
-        // Try getState pattern if it exists
-        if (typeof sdk.getState === 'function') {
-            try {
-                console.log('[getPersonalizeAttribute] Trying sdk.getState()');
-                const state = sdk.getState();
-                console.log('[getPersonalizeAttribute] getState result:', state);
-                if (state && state.user && state.user.attributes) {
-                    if (state.user.attributes[attributeName] !== undefined) {
-                        console.log(`[getPersonalizeAttribute] Found attribute in state: ${attributeName}=${state.user.attributes[attributeName]}`);
-                        return state.user.attributes[attributeName];
-                    }
-                }
-            } catch (e:any) {
-                console.log(`[getPersonalizeAttribute] getState failed: ${e.message}`);
-            }
-        }
-
-        // If nothing worked, return the default
-        console.log(`[getPersonalizeAttribute] Attribute ${attributeName} not found, returning default: ${defaultValue}`);
-        return defaultValue;
-    } catch (error) {
-        console.error(`[getPersonalizeAttribute] Error getting attribute ${attributeName}:`, error);
-        return defaultValue;
-    }
+interface UserAttributes {
+    isAuthenticated: boolean;
+    isRewardMember: boolean;
+    email: string;
 }
 
-const PersonalizedRewardsLink = () => {
-    // State to store the personalized link text
-    const [linkText, setLinkText] = useState("Good Rewards");
-    const [linkPath, setLinkPath] = useState("/good-rewards");
-    const [isUpdating, setIsUpdating] = useState(false);
-    const hasInitialized = React.useRef(false);
-    const skipNextUpdate = React.useRef(false);
+interface ExtendedSdk {
+    get?: () => Promise<any>;
+    set?: (attributes: UserAttributes) => Promise<void>;
+    [key: string]: any;
+}
 
-    // Get the Personalize SDK from context
-    const { sdk, isInitialized } = usePersonalize();
-
-    // Get the authentication session
-    const { data: session, status } = useSession();
-    const isAuthenticated = status === 'authenticated';
-    const previousStatus = React.useRef(status);
-
-    // Handle initialization and session changes
-    useEffect(() => {
-        // Skip if we're in the middle of an update or if we should skip this update
-        if (isUpdating || skipNextUpdate.current) {
-            skipNextUpdate.current = false;
-            return;
+// Helper function to safely get attributes from SDK
+const getSdkAttributes = async (sdk: ExtendedSdk | null) => {
+    try {
+        if (!sdk || typeof sdk.get !== 'function') {
+            return null;
         }
+        return await sdk.get();
+    } catch (error) {
+        debugLogger.error('Error getting SDK attributes:', error);
+        return null;
+    }
+};
 
+export default function PersonalizedRewardsLink() {
+    const { data: session } = useSession();
+    const { sdk, isInitialized } = usePersonalize();
+    const [variant, setVariant] = useState('default');
+    const [isSubscribed, setIsSubscribed] = useState(false);
+
+    useEffect(() => {
         const handleStateChange = async () => {
+            if (!sdk || !isInitialized) {
+                return;
+            }
+
             try {
-                setIsUpdating(true);
+                // Get current attributes
+                const attributes = await getSdkAttributes(sdk as ExtendedSdk);
+                
+                // Update user attributes based on session state
+                const userAttributes: UserAttributes = {
+                    isAuthenticated: !!session,
+                    isRewardMember: !!session?.user?.email,
+                    email: session?.user?.email || '',
+                };
 
-                // Handle sign out
-                if (previousStatus.current === 'authenticated' && status === 'unauthenticated') {
-                    // Clear local state
-                    localStorage.removeItem('isSubscribed');
-                    document.cookie = 'isSubscribed=false; path=/';
+                // Store user attributes in cookie for server-side access
+                document.cookie = `user_attributes=${encodeURIComponent(JSON.stringify(userAttributes))}; path=/`;
 
-                    // Clear SDK attributes if available
-                    if (isInitialized && sdk) {
-                        try {
-                            // @ts-ignore - SDK type definitions are incomplete
-                            await sdk.setUserAttributes({
-                                isRewardMember: false,
-                                isPremiumMember: false
-                            });
-                        } catch (sdkError) {
-                            console.warn('[PersonalizedRewardsLink] Could not clear SDK attributes:', sdkError);
-                        }
-                    }
-
-                    // Update UI directly
-                    setLinkText("Good Rewards");
-                    setLinkPath("/good-rewards");
-                    hasInitialized.current = false;
-                    skipNextUpdate.current = true;
-                }
-                // Handle initialization only if SDK is ready and we haven't initialized yet
-                else if (isInitialized && sdk && !hasInitialized.current && status !== 'loading') {
-                    const isSubscribed = localStorage.getItem('isSubscribed') === 'true';
-                    const isRewardMember = getPersonalizeAttribute(sdk, 'isRewardMember', isSubscribed);
-                    const isPremiumMember = getPersonalizeAttribute(sdk, 'isPremiumMember', false);
-
-                    let newLinkText: string;
-                    let newLinkPath: string = "/good-rewards";
-
-                    if (isRewardMember || isSubscribed) {
-                        newLinkText = isPremiumMember ? "Icon Rewards" : "Core Rewards";
+                // Try to set user attributes using available SDK methods
+                try {
+                    if (typeof sdk.set === 'function') {
+                        await (sdk as ExtendedSdk).set(userAttributes);
                     } else {
-                        if (isAuthenticated) {
-                            newLinkText = "Join Rewards";
-                        } else {
-                            newLinkText = "Good Rewards";
-                            newLinkPath = `/api/auth/signin?callbackUrl=${encodeURIComponent('/good-rewards?post_sub=1')}`;
-                        }
+                        debugLogger.warn('No method available to set user attributes');
                     }
-
-                    setLinkText(newLinkText);
-                    setLinkPath(newLinkPath);
-                    hasInitialized.current = true;
-                    skipNextUpdate.current = true;
+                } catch (error) {
+                    debugLogger.error('Error setting user attributes:', error);
                 }
-            } finally {
-                setIsUpdating(false);
-                previousStatus.current = status;
+
+                // Get current variant from URL
+                const url = new URL(window.location.href);
+                const currentVariant = url.searchParams.get('variant') || '';
+                let variantParam = currentVariant;
+
+                // Override variant for members
+                if (userAttributes.isRewardMember && (!variantParam || variantParam === 'default')) {
+                    variantParam = 'member';
+                }
+
+                // Update URL with variant
+                if (variantParam) {
+                    url.searchParams.set('variant', variantParam);
+                } else {
+                    url.searchParams.delete('variant');
+                }
+
+                // Update state
+                setVariant(variantParam);
+                setIsSubscribed(userAttributes.isRewardMember);
+
+                // Update URL without triggering navigation
+                window.history.replaceState({}, '', url.toString());
+
+                debugLogger.debug('State updated:', {
+                    variant: variantParam,
+                    isSubscribed: userAttributes.isRewardMember,
+                    userAttributes
+                });
+            } catch (error) {
+                debugLogger.error('Error handling state change:', error);
             }
         };
 
         handleStateChange();
-    }, [status, sdk, isInitialized, isUpdating, isAuthenticated]);
+    }, [sdk, isInitialized, session]);
 
-    const handleLinkClick = async (e: React.MouseEvent) => {
-        const currentUrl = new URL(window.location.href);
-        const isPostAuth = currentUrl.searchParams.has('post_sub');
-        const isGoodRewardsPage = currentUrl.pathname === '/good-rewards';
-        const isSigningOut = status === 'loading' || (previousStatus.current === 'authenticated' && status === 'unauthenticated');
-        
-        if (isPostAuth || isUpdating || isSigningOut) {
-            return;
-        }
-
-        if (!isAuthenticated) {
-            return;
-        }
-
-        if (isGoodRewardsPage) {
-            e.preventDefault();
-        }
-
-        if (isInitialized && sdk) {
-            try {
-                setIsUpdating(true);
-
-                // Update state
-                localStorage.setItem('isSubscribed', 'true');
-                document.cookie = 'isSubscribed=true; path=/';
-
-                // Update SDK attributes
-                if (typeof sdk.setUserAttributes === 'function') {
-                    // @ts-ignore - SDK type definitions are incomplete
-                    await sdk.setUserAttributes({
-                        isRewardMember: true,
-                        isPremiumMember: false
-                    });
-                }
-
-                // Track the event if needed
-                if (typeof sdk.triggerEvent === 'function') {
-                    await sdk.triggerEvent('rewards-link-click');
-                }
-
-                // Update UI state
-                setLinkText("Core Rewards");
-
-                // Only redirect if necessary
-                if (!isGoodRewardsPage) {
-                    const targetUrl = new URL('/good-rewards', window.location.origin);
-                    targetUrl.searchParams.set('post_sub', '1');
-                    window.location.href = targetUrl.toString();
-                }
-            } catch (error) {
-                console.error('[PersonalizedRewardsLink] Error:', error);
-            } finally {
-                setIsUpdating(false);
-            }
+    // Determine link text and URL based on variant
+    const getLinkConfig = () => {
+        switch (variant) {
+            case 'member':
+                return {
+                    text: 'Member Rewards',
+                    href: '/rewards-program'
+                };
+            case 'subscriber':
+                return {
+                    text: 'Subscriber Benefits',
+                    href: '/subscriber-benefits'
+                };
+            default:
+                return {
+                    text: 'Join Rewards',
+                    href: '/join-rewards'
+                };
         }
     };
 
+    const { text, href } = getLinkConfig();
+
     return (
         <Link
-            href={linkPath}
-            className="hover:text-foreground transition-all"
-            onClick={handleLinkClick}
+            href={href}
+            className="text-sm font-semibold leading-6 text-gray-900 hover:text-gray-700"
         >
-            {linkText}
+            {text}
         </Link>
     );
-};
-
-export default PersonalizedRewardsLink;
+}

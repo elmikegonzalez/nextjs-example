@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePersonalize } from '@/components/context/PersonalizeContext';
 import { syncMembershipStatus } from '@/helpers/localStorage-sync';
+import debugLogger from '../../utils/debug-logger';
 
 export const PageContent = () => {
   // Initialize with a default value
@@ -24,7 +25,18 @@ export const PageContent = () => {
     }
   }, []);
 
+  useEffect(() => {
+    debugLogger.group('PageContent Initialization', () => {
+      const storedValue = localStorage.getItem('isSubscribed');
+      debugLogger.info('Retrieved subscription status:', storedValue);
+      setIsSubscribed(storedValue === 'true');
+    });
+  }, []);
+
   const subscribe = async (shouldSubscribe: boolean) => {
+    debugLogger.time('Subscription Update');
+    debugLogger.info(`${shouldSubscribe ? 'Subscribing' : 'Unsubscribing'} user`);
+    
     setIsLoading(true);
     setIsSubscribed(shouldSubscribe);
 
@@ -59,9 +71,14 @@ export const PageContent = () => {
       setTimeout(() => {
         window.location.href = `/rewards-program?t=${Date.now()}`;
       }, 1000);
+
+      debugLogger.success('Subscription status updated successfully');
     } catch (e) {
       console.error('[RewardsProgram] Error updating membership status:', e);
       setIsLoading(false);
+      debugLogger.error('Failed to update subscription status:', e);
+    } finally {
+      debugLogger.timeEnd('Subscription Update');
     }
   };
 
@@ -84,6 +101,11 @@ export const PageContent = () => {
         </div>
     );
   }
+
+  debugLogger.debug('Rendering page content', {
+    isSubscribed,
+    isLoading
+  });
 
   return (
       <div className="container flex-grow max-w-[800px] mx-auto py-10">

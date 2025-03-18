@@ -4,13 +4,16 @@ import React, { useState, useEffect } from 'react';
 import { usePersonalize } from '@/components/context/PersonalizeContext';
 import { syncMembershipStatus } from '@/helpers/localStorage-sync';
 import { RewardsProgramContent } from './good-rewards-fetcher';
+import debugLogger from '../utils/debug-logger';
 
 interface GoodRewardsContentProps {
     initialContent: RewardsProgramContent;
 }
 
 const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent }) => {
-    console.log('[CLIENT][GoodRewardsContent] Component rendering with initial content:', initialContent);
+    debugLogger.group('GoodRewardsContent Render', () => {
+        debugLogger.info('Component rendering with initial content:', initialContent);
+    });
 
     // Local state for subscription status
     const [isSubscribed, setIsSubscribed] = useState(false);
@@ -25,191 +28,123 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
 
     // Initialize on client side
     useEffect(() => {
-        if (hasInitialized) {
+        debugLogger.group('Client Initialization', () => {
+            debugLogger.debug('Setting isClient to true');
+            setIsClient(true);
+
+            // Check local storage for subscription status
+            const storedStatus = localStorage.getItem('isSubscribed');
+            debugLogger.info('Stored subscription status:', storedStatus);
+            
+            if (storedStatus === 'true') {
+                debugLogger.debug('User is subscribed, setting state');
+                setIsSubscribed(true);
+            }
+        });
+    }, []);
+
+    // Add effect to handle SDK initialization and content updates
+    useEffect(() => {
+        if (!isInitialized || !sdk) {
+            debugLogger.debug('SDK not ready yet');
             return;
         }
 
-        console.log('[CLIENT][GoodRewardsContent] Component mounted');
-        setIsClient(true);
-
-        const initializeState = async () => {
+        const updateContent = async () => {
             try {
-                // Check SDK state first if available
-                if (isInitialized && sdk) {
-                    try {
-                        // Log SDK state for debugging
-                        console.log('[CLIENT][GoodRewardsContent] SDK object:', {
-                            methods: Object.keys(sdk).filter(key => typeof sdk[key] === 'function')
-                        });
-                        
-                        // Get user attributes using the correct SDK method
-                        try {
-                            const sdkState = await sdk.get();
-                            console.log('[CLIENT][GoodRewardsContent] SDK state:', sdkState);
-                            const isMember = sdkState?.isRewardMember === true;
-                            
-                            // Update localStorage to match SDK state
-                            window.localStorage.setItem('isSubscribed', `${isMember}`);
-                            setIsSubscribed(isMember);
-                            console.log('[CLIENT][GoodRewardsContent] Updated subscription status from SDK:', isMember);
+                setIsRefreshing(true);
+                debugLogger.group('Content Update', () => {
+                    debugLogger.info('Updating content based on SDK state');
+                });
 
-                            // Update content based on membership status
-                            if (isMember && initialContent.title === "Join Good Rewards Today") {
-                                // If member but showing join page, redirect to member page
-                                window.location.href = '/good-rewards?member=1';
-                                return;
-                            }
-                            
-                            // Track impression after state is confirmed
-                            await trackImpression();
-                            setHasInitialized(true);
-                            return;
-                        } catch (err) {
-                            console.warn('[CLIENT][GoodRewardsContent] Could not get SDK state:', err);
-                        }
-                    } catch (err) {
-                        console.warn('[CLIENT][GoodRewardsContent] Error accessing SDK:', err);
-                    }
+                // Get user attributes from SDK
+                const userAttributes = await sdk.getUserAttributes();
+                debugLogger.debug('User attributes:', userAttributes);
+
+                // Update local state based on SDK attributes
+                const isRewardMember = userAttributes?.isRewardMember || false;
+                setIsSubscribed(isRewardMember);
+
+                // Trigger content refresh if needed
+                if (isRewardMember && content.title === "Join Good Rewards Today") {
+                    debugLogger.info('Member detected but showing non-member content, refreshing...');
+                    await sdk.triggerEvent('force_content_refresh');
+                    window.location.reload();
                 }
-
-                // Fallback to localStorage if SDK state is not available
-                const value = window.localStorage.getItem('isSubscribed');
-                console.log('[CLIENT][GoodRewardsContent] Retrieved subscription status from localStorage:', value);
-                const isMember = value === 'true';
-                setIsSubscribed(isMember);
-
-                // Update content based on membership status
-                if (isMember && initialContent.title === "Join Good Rewards Today") {
-                    // If member but showing join page, redirect to member page
-                    window.location.href = '/good-rewards?member=1';
-                    return;
-                }
-
-                setHasInitialized(true);
             } catch (error) {
-                console.error('[CLIENT][GoodRewardsContent] Error during initialization:', error);
-                setHasInitialized(true);
+                debugLogger.error('Error updating content:', error);
+            } finally {
+                setIsRefreshing(false);
             }
         };
 
-        initializeState();
-    }, [isInitialized, sdk, hasInitialized, initialContent]);
+        updateContent();
+    }, [isInitialized, sdk]);
 
-    // Function to track impression
-    const trackImpression = async () => {
-        if (!isInitialized || !sdk) {
-            console.log('[CLIENT][GoodRewardsContent] Cannot track impression - SDK not initialized');
-            return;
-        }
-
-        try {
-            await sdk.triggerImpression('rewards-program-exp');
-            console.log('[CLIENT][GoodRewardsContent] Impression tracked successfully');
-        } catch (error) {
-            console.error('[CLIENT][GoodRewardsContent] Error tracking impression:', error);
-        }
-    };
-
-    // Handle subscription changes
+    // Subscribe/unsubscribe handler
     const subscribe = async (shouldSubscribe: boolean) => {
-        console.log(`[CLIENT][GoodRewardsContent] User ${shouldSubscribe ? 'subscribing' : 'unsubscribing'} to rewards program`);
-        console.log('[CLIENT][GoodRewardsContent] SDK state:', { isInitialized, sdk });
-        
-        // Double check subscription status before proceeding
-        const currentStatus = window.localStorage.getItem('isSubscribed') === 'true';
-        if (shouldSubscribe && currentStatus) {
-            console.log('[CLIENT][GoodRewardsContent] User is already subscribed, ignoring join request');
-            window.location.href = '/good-rewards?member=1';
-            return;
-        }
-        if (!shouldSubscribe && !currentStatus) {
-            console.log('[CLIENT][GoodRewardsContent] User is not subscribed, ignoring leave request');
-            window.location.href = '/good-rewards';
-            return;
-        }
+        debugLogger.time('Subscription Process');
+        debugLogger.group('Subscription Update', () => {
+            debugLogger.info(`${shouldSubscribe ? 'Subscribing' : 'Unsubscribing'} user`);
+            debugLogger.debug('Current SDK state:', {
+                isInitialized,
+                isInitializing,
+                hasSDK: !!sdk
+            });
+        });
 
         setIsRefreshing(true);
 
         try {
-            // Check if SDK is initialized first
-            if (!isInitialized || !sdk) {
-                console.warn('[CLIENT][GoodRewardsContent] Cannot update personalization - SDK not initialized');
-                setIsRefreshing(false);
-                return;
-            }
+            // Update local storage
+            localStorage.setItem('isSubscribed', shouldSubscribe.toString());
+            setIsSubscribed(shouldSubscribe);
 
-            // Log current state before update
-            try {
-                const currentState = await sdk.get();
-                console.log('[CLIENT][GoodRewardsContent] Current user state:', currentState);
-            } catch (err) {
-                console.warn('[CLIENT][GoodRewardsContent] Could not get current state:', err);
-            }
+            // Sync membership status
+            debugLogger.debug('Syncing membership status');
+            await syncMembershipStatus(shouldSubscribe);
 
-            // Update personalization attributes first
-            const newAttributes = {
-                isRewardMember: shouldSubscribe,
-                isPremiumMember: false,
-                memberSince: shouldSubscribe ? new Date().toISOString() : null,
-                lastUpdated: new Date().toISOString()
-            };
-
-            console.log('[CLIENT][GoodRewardsContent] Attempting to update attributes:', newAttributes);
-
-            try {
-                await sdk.set(newAttributes);
-                console.log('[CLIENT][GoodRewardsContent] Successfully updated SDK attributes');
-
-                // Track join/leave event
-                const eventName = shouldSubscribe ? 'rewards-program-join' : 'rewards-program-leave';
-                await sdk.triggerEvent(eventName);
-                console.log(`[CLIENT][GoodRewardsContent] Successfully tracked event: ${eventName}`);
-
-                // Update localStorage and cookie synchronously
+            if (sdk && isInitialized) {
+                debugLogger.debug('Updating SDK attributes');
                 try {
-                    window.localStorage.setItem('isSubscribed', `${shouldSubscribe}`);
-                    document.cookie = `isSubscribed=${shouldSubscribe}; path=/; max-age=86400`;
-                    console.log('[CLIENT][GoodRewardsContent] Successfully updated localStorage and cookies');
+                    await sdk.updateAttributes({
+                        user_attributes: {
+                            is_rewards_member: shouldSubscribe
+                        }
+                    });
+                    debugLogger.success('SDK attributes updated successfully');
                 } catch (err) {
-                    console.error('[CLIENT][GoodRewardsContent] Failed to update localStorage/cookies:', err);
+                    debugLogger.error('Failed to update SDK attributes:', err);
+                    throw err;
                 }
-
-                // Call the sync function to notify other components
-                try {
-                    syncMembershipStatus(shouldSubscribe);
-                    console.log('[CLIENT][GoodRewardsContent] Successfully synced membership status');
-                } catch (err) {
-                    console.error('[CLIENT][GoodRewardsContent] Failed to sync membership status:', err);
-                }
-
-                // Let the server handle variants by redirecting with member status
-                const url = new URL('/good-rewards', window.location.origin);
-                url.searchParams.set('member', shouldSubscribe ? '1' : '0');
-                url.searchParams.set('t', Date.now().toString()); // Cache busting
-                
-                console.log('[CLIENT][GoodRewardsContent] Redirecting to:', url.toString());
-                window.location.href = url.toString();
-
-            } catch (err) {
-                console.error('[CLIENT][GoodRewardsContent] Failed to update SDK attributes:', err);
-                throw err;
+            } else {
+                debugLogger.warning('SDK not available for attribute update', {
+                    sdk: !!sdk,
+                    isInitialized
+                });
             }
+
+            setIsRefreshing(false);
+            debugLogger.success('Subscription process completed successfully');
 
         } catch (error) {
-            console.error('[CLIENT][GoodRewardsContent] Critical error in subscription process:', error);
+            debugLogger.error('Critical error in subscription process:', error);
             setIsRefreshing(false);
-            // Show error state in debug section
             setShowDetailedDebug(true);
+        } finally {
+            debugLogger.timeEnd('Subscription Process');
         }
     };
 
     // Show loading state during SSR
     if (!isClient) {
+        debugLogger.debug('Rendering SSR loading state');
         return <div className="container flex-grow max-w-[800px] mx-auto py-10">Loading your rewards information...</div>;
     }
 
     // Show SDK initializing state
     if (isInitializing) {
+        debugLogger.debug('Rendering SDK initialization state');
         return (
             <div className="container flex-grow max-w-[800px] mx-auto py-10">
                 <div className="bg-white shadow-lg rounded-lg overflow-hidden p-6 text-center">
@@ -225,6 +160,7 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
 
     // Show SDK error state
     if (error) {
+        debugLogger.error('SDK initialization error:', error);
         return (
             <div className="container flex-grow max-w-[800px] mx-auto py-10">
                 <div className="bg-white shadow-lg rounded-lg overflow-hidden p-6 text-center">
@@ -248,6 +184,7 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
 
     // Show refreshing state
     if (isRefreshing) {
+        debugLogger.debug('Rendering refresh state');
         return (
             <div className="container flex-grow max-w-[800px] mx-auto py-10">
                 <div className="bg-white shadow-lg rounded-lg overflow-hidden p-6 text-center">
@@ -260,6 +197,13 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
             </div>
         );
     }
+
+    debugLogger.debug('Rendering main content', {
+        isSubscribed,
+        hasTierInfo: !!content.tierInfo,
+        title: content.title,
+        benefitsCount: content.benefits.length
+    });
 
     return (
         <div className="container flex-grow max-w-[800px] mx-auto py-10">
@@ -424,7 +368,7 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
                                     id="unsubscribe"
                                     className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded transition-colors"
                                     onClick={() => {
-                                        console.log('[CLIENT][GoodRewardsContent] Unsubscribe button clicked');
+                                        debugLogger.info('Unsubscribe button clicked');
                                         subscribe(false);
                                     }}
                                     disabled={isRefreshing}
@@ -438,7 +382,7 @@ const GoodRewardsContent: React.FC<GoodRewardsContentProps> = ({ initialContent 
                                 id="subscribe"
                                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition-colors"
                                 onClick={() => {
-                                    console.log('[CLIENT][GoodRewardsContent] Join Now button clicked');
+                                    debugLogger.info('Join Now button clicked');
                                     subscribe(true);
                                 }}
                                 disabled={isRefreshing}
